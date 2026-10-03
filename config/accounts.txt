@@ -1,0 +1,6 @@
+# 생성: 2026-08-10 00:18:54 KST
+# 명령: bash -c for u in agent-admin agent-dev agent-test; do id "$u"; done
+
+uid=1001(agent-admin) gid=1003(agent-admin) groups=1003(agent-admin),1001(agent-common),1002(agent-core)
+uid=1002(agent-dev) gid=1004(agent-dev) groups=1004(agent-dev),1001(agent-common),1002(agent-core)
+uid=1003(agent-test) gid=1005(agent-test) groups=1005(agent-test),1001(agent-common)

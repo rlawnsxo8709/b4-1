@@ -1,0 +1,9 @@
+# 생성: 2026-08-10 00:18:54 KST
+# 명령: ss -tulnp
+
+Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                       
+udp   UNCONN 0      0         127.0.0.11:50805      0.0.0.0:*                                 
+tcp   LISTEN 0      4096      127.0.0.11:35327      0.0.0.0:*                                 
+tcp   LISTEN 0      1            0.0.0.0:15034      0.0.0.0:*                                 
+tcp   LISTEN 0      128          0.0.0.0:20022      0.0.0.0:*    users:(("sshd",pid=142,fd=3))
+tcp   LISTEN 0      128             [::]:20022         [::]:*    users:(("sshd",pid=142,fd=4))

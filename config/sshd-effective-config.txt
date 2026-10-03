@@ -1,0 +1,6 @@
+# 생성: 2026-08-10 00:18:54 KST
+# 명령: bash -c sshd -T | grep -E '^(port|permitrootlogin|passwordauthentication) '
+
+port 20022
+permitrootlogin no
+passwordauthentication yes
