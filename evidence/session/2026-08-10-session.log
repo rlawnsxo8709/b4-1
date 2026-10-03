@@ -1,0 +1,468 @@
+
+=========================================================================
+  RUN   : phases/phase9-doc-conformance.sh
+  AT    : 2026-08-10 00:08:50 KST
+=========================================================================
+>>> evidence file: /evidence/phase9-doc-conformance.txt
+[NOTE] [검증 목적]
+미션 문서(b1-1.txt)의 표기는 다음과 같다.
+  AGENT_KEY_PATH : $AGENT_HOME/api_keys/t_secret.key   (파일 경로)
+  키 파일        : t_secret.key, 내용 agent_api_key_test
+
+Phase 4 에서 이 표기로 Boot [2/5] 가 실패했으나, 그 시점에는 secret.key 가
+아직 없었다. 앱이 '파일 존재 여부' 때문에 실패했을 가능성을 배제하지 못했으므로,
+키 파일이 모두 갖춰진 지금 조건에서 문서 표기를 그대로 다시 시험한다.
+가능하다면 문서 표기를 따르는 것이 맞기 때문이다.
+--- [9-1] 현재 키 파일 상태 ---
+total 12
+-rw-r-----+ 1 agent-admin agent-core 19 Aug  9 22:27 $f
+-rw-r-----+ 1 agent-admin agent-core 19 Aug  9 22:25 secret.key
+-rw-r-----+ 1 agent-admin agent-core 19 Aug  9 22:24 t_secret.key
+--- 내용 ---
+t_secret.key   : agent_api_key_test$
+secret.key     : agent_api_key_test$
+
+==============================================================
+ [9-2] 시험 A — AGENT_KEY_PATH = 문서 표기(파일 경로)
+==============================================================
+
+
+==============================================================
+ [9-3] 시험 B — AGENT_KEY_PATH = 디렉토리 (현재 채택안)
+==============================================================
+
+
+==============================================================
+ [9-4] 시험 C — t_secret.key 만 두고 secret.key 를 치우면?
+==============================================================
+[NOTE] 문서가 지정한 t_secret.key 만으로 앱이 동작하는지 확인한다.
+동작한다면 secret.key 는 불필요하므로 문서 표기만 남기면 된다.
+
+--- [9-5] secret.key 복구 ---
+install: cannot stat '/tmp/secret.key.bak': No such file or directory
+total 12
+-rw-r-----+ 1 agent-admin agent-core 19 Aug  9 22:27 $f
+-rw-r-----+ 1 agent-admin agent-core 19 Aug  9 22:25 secret.key
+-rw-r-----+ 1 agent-admin agent-core 19 Aug  9 22:24 t_secret.key
+--- [9-6] 최종 구성으로 앱 재기동 ---
+
+
+=== Phase 9 결론 ===
+grep: /tmp/probeA.log: No such file or directory
+시험 A (문서 표기: 파일 경로) : 부팅 실패
+grep: /tmp/probeB.log: No such file or directory
+시험 B (디렉토리)            : 부팅 실패
+grep: /tmp/probeC.log: No such file or directory
+시험 C (t_secret.key 만)     : 부팅 실패
+----- exit=0 -----
+
+=========================================================================
+  RUN   : phases/phase9-doc-conformance.sh
+  AT    : 2026-08-10 00:10:43 KST
+=========================================================================
+>>> evidence file: /evidence/phase9-doc-conformance.txt
+[NOTE] [검증 목적]
+가능하다면 미션 문서의 표기를 그대로 따르는 것이 맞다. 문서와 다르게 구현했다면
+'왜 그럴 수밖에 없었는지'를 근거로 제시할 수 있어야 한다.
+Phase 4 의 실패는 secret.key 가 없던 조건에서 관측된 것이므로,
+지금 조건에서 문서 표기를 다시 시험해 결론을 확정한다.
+--- [9-1] 잔여 파일 정리 및 키 파일 재생성 ---
+[NOTE] [결함 발견] api_keys 에 '$f' 라는 이름의 파일이 있었다.
+Phase 4 스크립트의 키 생성 루프에서 '경로/$f' 처럼 작은따옴표를 써서
+루프 변수가 확장되지 않은 결과다. Phase 7 의 배치 루프와 똑같은 실수이며,
+그때는 증상이 바로 드러났지만 여기서는 실제 키 파일이 이전 수동 작업으로
+이미 존재했던 탓에 드러나지 않았다.
+'우연히 결과가 맞아서 버그가 숨는' 전형적인 경우다.
+Phase 4 스크립트를 수정하고 키 파일을 규정대로 다시 만든다.
+total 8
+-rw-r-----+ 1 agent-admin agent-core 19 Aug 10 00:10 secret.key
+-rw-r-----+ 1 agent-admin agent-core 19 Aug 10 00:10 t_secret.key
+--- 내용 (개행 가시화) ---
+t_secret.key   : agent_api_key_test$
+secret.key     : agent_api_key_test$
+
+==============================================================
+ [9-2] 시험 A — AGENT_KEY_PATH = 문서 표기 (파일 경로)
+==============================================================
+>>> Starting Agent Boot Sequence...
+[1/5] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=1001)
+[2/5] Verifying Environment Variables     [FAIL]
+   >>> Key Path Mismatch. Expected: /home/agent-admin/agent-app/api_keys
+[3/5] Checking Required Files             [FAIL]
+   >>> Skipped due to previous critical failure.
+[4/5] Checking Port Availability          [FAIL]
+   >>> Skipped due to previous critical failure.
+[5/5] Verifying Log Permission            [FAIL]
+   >>> Skipped due to previous critical failure.
+--------------------------------------------------
+System Boot Failed. Process Terminated.
+
+==============================================================
+ [9-3] 시험 B — AGENT_KEY_PATH = 디렉토리 (현재 채택안)
+==============================================================
+>>> Starting Agent Boot Sequence...
+[1/5] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=1001)
+[2/5] Verifying Environment Variables     [OK]
+   ... All required Envs correct
+[3/5] Checking Required Files             [OK]
+   ... Verified 'secret.key' with correct key string.
+[4/5] Checking Port Availability          [OK]
+   ... Port 15034 is available.
+[5/5] Verifying Log Permission            [OK]
+   ... Log directory is writable: /var/log/agent-app
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+
+==============================================================
+ [9-4] 시험 C — 문서가 지정한 t_secret.key 만 두는 경우
+==============================================================
+[NOTE] t_secret.key 만으로 앱이 동작한다면 secret.key 는 불필요하고
+문서 표기만 남기면 된다. 이것도 확인해야 결론이 완결된다.
+secret.key 임시 제거
+>>> Starting Agent Boot Sequence...
+[1/5] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=1001)
+[2/5] Verifying Environment Variables     [OK]
+   ... All required Envs correct
+[3/5] Checking Required Files             [FAIL]
+   >>> Missing File: secret.key
+   >>>    (Expected location: /home/agent-admin/agent-app/api_keys/secret.key)
+[4/5] Checking Port Availability          [FAIL]
+   >>> Skipped due to previous critical failure.
+[5/5] Verifying Log Permission            [FAIL]
+   >>> Skipped due to previous critical failure.
+--------------------------------------------------
+System Boot Failed. Process Terminated.
+--- [9-5] secret.key 복구 ---
+total 8
+-rw-r-----  1 agent-admin agent-core 19 Aug 10 00:11 secret.key
+-rw-r-----+ 1 agent-admin agent-core 19 Aug 10 00:10 t_secret.key
+--- [9-6] 최종 구성으로 앱 재기동 ---
+   ... Log directory is writable: /var/log/agent-app
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+>>> Starting Agent Boot Sequence...
+[1/5] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=1001)
+[2/5] Verifying Environment Variables     [OK]
+   ... All required Envs correct
+[3/5] Checking Required Files             [OK]
+   ... Verified 'secret.key' with correct key string.
+[4/5] Checking Port Availability          [OK]
+   ... Port 15034 is available.
+[5/5] Verifying Log Permission            [OK]
+   ... Log directory is writable: /var/log/agent-app
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+tcp   LISTEN 0      1            0.0.0.0:15034      0.0.0.0:*          
+재기동 확인
+
+==============================================================
+ [9-7] 결론
+==============================================================
+시험 A  AGENT_KEY_PATH = 파일 경로 (문서 표기) : 부팅 실패
+             >>> Key Path Mismatch. Expected: /home/agent-admin/agent-app/api_keys
+시험 B  AGENT_KEY_PATH = 디렉토리             : 부팅 성공
+시험 C  t_secret.key 만 존재                  : 부팅 실패
+             >>> Missing File: secret.key
+[NOTE] [결론]
+시험 A 가 실패하고 B 가 성공한다면, AGENT_KEY_PATH 를 디렉토리로 두는 것은
+'선택'이 아니라 앱이 강제하는 '제약'이다. 문서 표기를 따를 수 없는 이유를
+앱의 출력으로 증명한 셈이다.
+시험 C 가 실패한다면 secret.key 도 앱이 강제하는 것이므로,
+문서가 지정한 t_secret.key 와 함께 두 파일을 모두 유지하는 현재 방식이
+문서와 앱을 동시에 만족시키는 유일한 방법이다.
+----- exit=0 -----
+
+=========================================================================
+  RUN   : snapshot.sh
+  AT    : 2026-08-10 00:18:54 KST
+=========================================================================
+=== 설정 파일 스냅샷 ===
+  saved: sshd_config.d-99-agent.conf  <- /etc/ssh/sshd_config.d/99-agent.conf
+  saved: agent-app.env  <- /etc/agent-app.env
+  saved: profile.d-agent-app.sh  <- /etc/profile.d/agent-app.sh
+  saved: ufw.conf  <- /etc/ufw/ufw.conf
+
+=== 명령 출력 스냅샷 ===
+  saved: sshd-effective-config.txt  <- $ bash -c sshd -T | grep -E '^(port|permitrootlogin|passwordauthentication) '
+  saved: ufw-status.txt  <- $ ufw status verbose
+  saved: listening-ports.txt  <- $ ss -tulnp
+  saved: accounts.txt  <- $ bash -c for u in agent-admin agent-dev agent-test; do id "$u"; done
+  saved: groups.txt  <- $ getent group agent-common agent-core
+  saved: crontab-agent-admin.txt  <- $ crontab -l -u agent-admin
+  saved: directory-perms.txt  <- $ bash -c ls -ld /home/agent-admin /home/agent-admin/agent-app /home/agent-admin/agent-app/bin /home/agent-admin/agent-app/upload_files /home/agent-admin/agent-app/api_keys /var/log/agent-app /var/log/monitor/agent-app/archive
+  saved: getfacl-all.txt  <- $ bash -c for d in /home/agent-admin /home/agent-admin/agent-app /home/agent-admin/agent-app/bin /home/agent-admin/agent-app/upload_files /home/agent-admin/agent-app/api_keys /var/log/agent-app /var/log/monitor/agent-app/archive; do echo "### $d"; getfacl -p "$d" 2>/dev/null; echo; done
+  saved: script-perms.txt  <- $ ls -l /home/agent-admin/agent-app/bin
+
+스냅샷 위치: /evidence/snapshots
+total 52
+-rw-r--r-- 1 root root  402 Aug 10 00:18 accounts.txt
+-rw-r--r-- 1 root root  721 Aug 10 00:18 agent-app.env
+-rw-r--r-- 1 root root  300 Aug 10 00:18 crontab-agent-admin.txt
+-rw-r--r-- 1 root root  879 Aug 10 00:18 directory-perms.txt
+-rw-r--r-- 1 root root 2225 Aug 10 00:18 getfacl-all.txt
+-rw-r--r-- 1 root root  175 Aug 10 00:18 groups.txt
+-rw-r--r-- 1 root root  625 Aug 10 00:18 listening-ports.txt
+-rw-r--r-- 1 root root  302 Aug 10 00:18 profile.d-agent-app.sh
+-rw-r--r-- 1 root root  291 Aug 10 00:18 script-perms.txt
+-rw-r--r-- 1 root root  178 Aug 10 00:18 sshd-effective-config.txt
+-rw-r--r-- 1 root root  481 Aug 10 00:18 sshd_config.d-99-agent.conf
+-rw-r--r-- 1 root root  564 Aug 10 00:18 ufw-status.txt
+-rw-r--r-- 1 root root  313 Aug 10 00:18 ufw.conf
+----- exit=0 -----
+
+=========================================================================
+  RUN   : collect-evidence.sh
+  AT    : 2026-08-10 00:18:54 KST
+=========================================================================
+
+=== 증거 1 — SSH 포트 20022 변경 및 Root 원격 접속 차단 ===
+port 20022
+permitrootlogin no
+# b1-1 미션 기본 보안 설정
+# 1) 포트 변경: 22 를 노리는 자동화 스캔의 접속 시도를 걷어낸다.
+#    포트 변경 자체는 '방어'가 아니라 '잡음 제거'다. 진짜 방어는 아래 항목들이다.
+Port 20022
+
+# 2) root 원격 로그인 차단: 공격자가 이미 아는 계정명(root)으로 들어올 길을 막는다.
+#    운영은 일반 계정 로그인 + sudo 로 하며, 이때 조작 주체가 로그에 남는다.
+PermitRootLogin no
+tcp   LISTEN 0      128          0.0.0.0:20022      0.0.0.0:*          
+tcp   LISTEN 0      128             [::]:20022         [::]:*          
+
+=== 증거 2 — 방화벽 활성화 및 20022/15034 만 허용 ===
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), deny (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+20022/tcp                  ALLOW IN    Anywhere                   # SSH
+15034/tcp                  ALLOW IN    Anywhere                   # AGENT APP
+20022/tcp (v6)             ALLOW IN    Anywhere (v6)              # SSH
+15034/tcp (v6)             ALLOW IN    Anywhere (v6)              # AGENT APP
+ENABLED=yes
+
+=== 증거 3 — 계정/그룹 생성 (agent-admin/dev/test, agent-common/core) ===
+uid=1001(agent-admin) gid=1003(agent-admin) groups=1003(agent-admin),1001(agent-common),1002(agent-core)
+uid=1002(agent-dev) gid=1004(agent-dev) groups=1004(agent-dev),1001(agent-common),1002(agent-core)
+uid=1003(agent-test) gid=1005(agent-test) groups=1005(agent-test),1001(agent-common)
+agent-common:x:1001:agent-admin,agent-dev,agent-test
+agent-core:x:1002:agent-admin,agent-dev
+
+=== 증거 4 — 디렉토리 구조 및 권한 (ACL 포함) ===
+drwxr-x---+ 3 agent-admin agent-admin  4096 Aug  9 22:21 /home/agent-admin
+drwxr-s---+ 5 agent-admin agent-core   4096 Aug  9 22:27 /home/agent-admin/agent-app
+drwxrws---+ 2 agent-admin agent-core   4096 Aug 10 00:12 /home/agent-admin/agent-app/api_keys
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:41 /home/agent-admin/agent-app/bin
+drwxrws---+ 2 agent-admin agent-common 4096 Aug  9 22:53 /home/agent-admin/agent-app/upload_files
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:44 /var/log/agent-app
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:44 /var/log/monitor/agent-app/archive
+### /home/agent-admin
+user::rwx
+user:agent-dev:--x
+group::r-x
+group:agent-common:--x
+mask::r-x
+other::---
+
+
+### /home/agent-admin/agent-app
+user::rwx
+group::r-x
+group:agent-common:--x
+mask::r-x
+other::---
+
+
+### /home/agent-admin/agent-app/upload_files
+user::rwx
+group::rwx
+group:agent-common:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-common:rwx
+default:mask::rwx
+default:other::---
+
+
+### /home/agent-admin/agent-app/api_keys
+user::rwx
+group::rwx
+group:agent-core:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-core:rwx
+default:mask::rwx
+default:other::---
+
+
+### /var/log/agent-app
+user::rwx
+group::rwx
+group:agent-core:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-core:rwx
+default:mask::rwx
+default:other::---
+  [권한 격리 실증]
+OK: agent-test 는 공유 영역에 쓸 수 있다
+ls: cannot open directory '/home/agent-admin/agent-app/api_keys': Permission denied
+[PASS (차단 확인됨)]
+ls: cannot open directory '/var/log/agent-app': Permission denied
+[PASS (차단 확인됨)]
+ls: cannot open directory '/home/agent-admin': Permission denied
+[PASS (차단 확인됨)]
+
+=== 증거 5 — 앱 Boot Sequence 5단계 [OK] 및 Agent READY ===
+   ... Port 15034 is available.
+[5/5] Verifying Log Permission            [OK]
+   ... Log directory is writable: /var/log/agent-app
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+>>> Starting Agent Boot Sequence...
+[1/5] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=1001)
+[2/5] Verifying Environment Variables     [OK]
+   ... All required Envs correct
+[3/5] Checking Required Files             [OK]
+   ... Verified 'secret.key' with correct key string.
+[4/5] Checking Port Availability          [OK]
+   ... Port 15034 is available.
+[5/5] Verifying Log Permission            [OK]
+   ... Log directory is writable: /var/log/agent-app
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+   6321 agent-a+ ./agent-app-linux-arm64
+   6323 agent-a+ ./agent-app-linux-arm64
+tcp   LISTEN 0      1            0.0.0.0:15034      0.0.0.0:*          
+
+=== 증거 6 — monitor.sh 실행 결과 (프로세스/포트/리소스/경고) ===
+-rwxr-x---+ 1 agent-dev agent-core 10990 Aug  9 22:44 /home/agent-admin/agent-app/bin/monitor.sh
+====== SYSTEM MONITOR RESULT ======
+
+[HEALTH CHECK]
+Checking process 'agent-app-linux-arm[6]4'... [OK] (PID: 6321)
+Checking port 15034... [OK]
+
+[SECURITY CHECK]
+Checking firewall (ufw)... [OK] (enabled)
+
+[RESOURCE MONITORING]
+CPU Usage  : 8.6%
+MEM Usage  : 11.8%
+DISK Used  : 25%
+
+[WARNING] MEM threshold exceeded (11.8% > 10%)
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+(exit=0)
+
+=== 증거 7 — /var/log/agent-app/monitor.log 누적 기록 (최근 라인) ===
+총 라인 수: 121
+[2026-08-10 00:07:02] PID:1807 CPU:7.6% MEM:10.7% DISK_USED:25%
+[2026-08-10 00:08:02] PID:1807 CPU:2.1% MEM:9.2% DISK_USED:25%
+[2026-08-10 00:12:02] PID:6321 CPU:1.9% MEM:9.1% DISK_USED:25%
+[2026-08-10 00:13:02] PID:6321 CPU:1.4% MEM:8.9% DISK_USED:25%
+[2026-08-10 00:14:02] PID:6321 CPU:2.1% MEM:9.0% DISK_USED:25%
+[2026-08-10 00:15:02] PID:6321 CPU:6.9% MEM:10.9% DISK_USED:25%
+[2026-08-10 00:16:02] PID:6321 CPU:7.5% MEM:11.6% DISK_USED:25%
+[2026-08-10 00:17:02] PID:6321 CPU:3.4% MEM:9.1% DISK_USED:25%
+[2026-08-10 00:18:02] PID:6321 CPU:8.9% MEM:12.1% DISK_USED:25%
+[2026-08-10 00:18:55] PID:6321 CPU:8.6% MEM:11.8% DISK_USED:25%
+
+=== 증거 8 — crontab 매분 실행 등록 및 자동 실행 확인 ===
+# b1-1 시스템 관제 자동화
+# monitor.sh 를 매분 실행하고, cron 환경에서만 발생하는 오류를 cron.out 에 남긴다.
+* * * * * /home/agent-admin/agent-app/bin/monitor.sh >> /var/log/agent-app/cron.out 2>&1
+     19 root     cron
+  기준 시각 2026-08-10 00:18:55 / 라인 수 121 — 70초 대기 후 재측정
+자동 누적 검증
+  기준 : 2026-08-10 00:18:55  라인 수 121
+  측정 : 2026-08-10 00:20:05  라인 수 123
+  증가 : 2 줄
+  판정 : PASS (cron 이 스스로 실행했다)
+[2026-08-10 00:18:55] PID:6321 CPU:8.6% MEM:11.8% DISK_USED:25%
+[2026-08-10 00:19:02] PID:6321 CPU:7.1% MEM:11.7% DISK_USED:25%
+[2026-08-10 00:20:02] PID:6321 CPU:7.1% MEM:11.7% DISK_USED:25%
+
+=== 보너스 — report.sh 통계 리포트 ===
+    ====== STATISTICS REPORT ======
+      source : /var/log/agent-app/monitor.log
+
+      [CPU]
+        Average : 4.4%
+        Maximum : 52.0% at 2026-08-09 22:36:24
+        Minimum : 0.2% at 2026-08-09 23:37:02
+      [Memory]
+        Average : 9.5%
+        Maximum : 12.8% at 2026-08-09 22:43:02
+        Minimum : 8.8% at 2026-08-09 22:35:14
+      [Disk]
+        Average : 25.0%
+        Maximum : 25.0% at 2026-08-09 22:30:19
+        Minimum : 25.0% at 2026-08-09 22:30:19
+      [Samples]
+        Data Points: 123 samples
+        Range      : 2026-08-09 22:30:19 ~ 2026-08-10 00:20:02
+
+=== 보너스 — 임계값 경고 실제 발생 기록 (cron 자동 실행 중) ===
+[RESOURCE MONITORING]
+CPU Usage  : 8.9%
+MEM Usage  : 12.1%
+DISK Used  : 25%
+
+[WARNING] MEM threshold exceeded (12.1% > 10%)
+--
+[RESOURCE MONITORING]
+CPU Usage  : 7.1%
+MEM Usage  : 11.7%
+DISK Used  : 25%
+
+[WARNING] MEM threshold exceeded (11.7% > 10%)
+--
+[RESOURCE MONITORING]
+CPU Usage  : 7.1%
+MEM Usage  : 11.7%
+DISK Used  : 25%
+
+[WARNING] MEM threshold exceeded (11.7% > 10%)
+
+=== 보너스 — 로그 보존 정책 (archive_logs.sh) ===
+====== LOG ARCHIVE / RETENTION ======
+source  : /var/log/agent-app
+archive : /var/log/monitor/agent-app/archive
+policy  : 7일 경과 압축 → 아카이브 이동, 30일 경과 아카이브 삭제
+
+[STEP 1] 7일 경과 로그 압축 및 이동
+  대상 없음 — 7일 이상 경과한 로그가 없습니다. (정상)
+
+[STEP 2] 30일 경과 아카이브 삭제
+  대상 없음 — 30일 이상 경과한 아카이브가 없습니다. (정상)
+
+====== SUMMARY ======
+compressed : 0
+deleted    : 0
+archive 현황:
+  파일 0개, 총 4.0K
+(exit=0)
+
+완료: /evidence/FINAL-VERIFICATION.txt
+388 /evidence/FINAL-VERIFICATION.txt
+----- exit=0 -----

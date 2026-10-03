@@ -1,0 +1,388 @@
+============================================================
+ b1-1 최종 상태 검증 — 필수 증거 8종
+ 생성: 2026-08-10 00:18:54 KST
+ 호스트: agent-lab  커널: 6.14.0-1015-nvidia  아키텍처: aarch64
+============================================================
+
+
+############################################################
+# 증거 1 — SSH 포트 20022 변경 및 Root 원격 접속 차단
+############################################################
+
+### 2026-08-10 00:18:54
+$ sshd -T | grep -E '^(port|permitrootlogin) '
+port 20022
+permitrootlogin no
+--- exit=0 ---
+
+### 2026-08-10 00:18:54
+$ cat /etc/ssh/sshd_config.d/99-agent.conf
+# b1-1 미션 기본 보안 설정
+# 1) 포트 변경: 22 를 노리는 자동화 스캔의 접속 시도를 걷어낸다.
+#    포트 변경 자체는 '방어'가 아니라 '잡음 제거'다. 진짜 방어는 아래 항목들이다.
+Port 20022
+
+# 2) root 원격 로그인 차단: 공격자가 이미 아는 계정명(root)으로 들어올 길을 막는다.
+#    운영은 일반 계정 로그인 + sudo 로 하며, 이때 조작 주체가 로그에 남는다.
+PermitRootLogin no
+--- exit=0 ---
+
+### 2026-08-10 00:18:54
+$ ss -tuln | grep -E ':(22|20022) ' || echo '(no match)'
+tcp   LISTEN 0      128          0.0.0.0:20022      0.0.0.0:*          
+tcp   LISTEN 0      128             [::]:20022         [::]:*          
+--- exit=0 ---
+
+
+############################################################
+# 증거 2 — 방화벽 활성화 및 20022/15034 만 허용
+############################################################
+
+### 2026-08-10 00:18:54
+$ ufw status verbose
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), deny (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+20022/tcp                  ALLOW IN    Anywhere                   # SSH
+15034/tcp                  ALLOW IN    Anywhere                   # AGENT APP
+20022/tcp (v6)             ALLOW IN    Anywhere (v6)              # SSH
+15034/tcp (v6)             ALLOW IN    Anywhere (v6)              # AGENT APP
+--- exit=0 ---
+
+### 2026-08-10 00:18:54
+$ grep '^ENABLED=' /etc/ufw/ufw.conf
+ENABLED=yes
+--- exit=0 ---
+
+
+############################################################
+# 증거 3 — 계정/그룹 생성 (agent-admin/dev/test, agent-common/core)
+############################################################
+
+### 2026-08-10 00:18:54
+$ for u in agent-admin agent-dev agent-test; do id "$u"; done
+uid=1001(agent-admin) gid=1003(agent-admin) groups=1003(agent-admin),1001(agent-common),1002(agent-core)
+uid=1002(agent-dev) gid=1004(agent-dev) groups=1004(agent-dev),1001(agent-common),1002(agent-core)
+uid=1003(agent-test) gid=1005(agent-test) groups=1005(agent-test),1001(agent-common)
+--- exit=0 ---
+
+### 2026-08-10 00:18:54
+$ getent group agent-common agent-core
+agent-common:x:1001:agent-admin,agent-dev,agent-test
+agent-core:x:1002:agent-admin,agent-dev
+--- exit=0 ---
+
+
+############################################################
+# 증거 4 — 디렉토리 구조 및 권한 (ACL 포함)
+############################################################
+
+### 2026-08-10 00:18:54
+$ ls -ld /home/agent-admin '/home/agent-admin/agent-app' '/home/agent-admin/agent-app/bin' '/home/agent-admin/agent-app/upload_files' '/home/agent-admin/agent-app/api_keys' '/var/log/agent-app' /var/log/monitor/agent-app/archive
+drwxr-x---+ 3 agent-admin agent-admin  4096 Aug  9 22:21 /home/agent-admin
+drwxr-s---+ 5 agent-admin agent-core   4096 Aug  9 22:27 /home/agent-admin/agent-app
+drwxrws---+ 2 agent-admin agent-core   4096 Aug 10 00:12 /home/agent-admin/agent-app/api_keys
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:41 /home/agent-admin/agent-app/bin
+drwxrws---+ 2 agent-admin agent-common 4096 Aug  9 22:53 /home/agent-admin/agent-app/upload_files
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:44 /var/log/agent-app
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:44 /var/log/monitor/agent-app/archive
+--- exit=0 ---
+
+### 2026-08-10 00:18:54
+$ for d in /home/agent-admin '/home/agent-admin/agent-app' '/home/agent-admin/agent-app/upload_files' '/home/agent-admin/agent-app/api_keys' '/var/log/agent-app'; do
+         echo "### $d"; getfacl -p "$d" 2>/dev/null | grep -vE '^#'; echo; done
+### /home/agent-admin
+user::rwx
+user:agent-dev:--x
+group::r-x
+group:agent-common:--x
+mask::r-x
+other::---
+
+
+### /home/agent-admin/agent-app
+user::rwx
+group::r-x
+group:agent-common:--x
+mask::r-x
+other::---
+
+
+### /home/agent-admin/agent-app/upload_files
+user::rwx
+group::rwx
+group:agent-common:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-common:rwx
+default:mask::rwx
+default:other::---
+
+
+### /home/agent-admin/agent-app/api_keys
+user::rwx
+group::rwx
+group:agent-core:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-core:rwx
+default:mask::rwx
+default:other::---
+
+
+### /var/log/agent-app
+user::rwx
+group::rwx
+group:agent-core:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-core:rwx
+default:mask::rwx
+default:other::---
+--- exit=0 ---
+
+### 2026-08-10 00:18:54
+$ sudo -u agent-test touch '/home/agent-admin/agent-app/upload_files/.chk' && echo 'OK: agent-test 는 공유 영역에 쓸 수 있다' && rm -f '/home/agent-admin/agent-app/upload_files/.chk'
+OK: agent-test 는 공유 영역에 쓸 수 있다
+--- exit=0 ---
+
+### 2026-08-10 00:18:54  [NEGATIVE TEST]
+$ sudo -u agent-test ls /home/agent-admin/agent-app/api_keys
+ls: cannot open directory '/home/agent-admin/agent-app/api_keys': Permission denied
+--- exit=2  PASS (차단 확인됨) ---
+
+### 2026-08-10 00:18:54  [NEGATIVE TEST]
+$ sudo -u agent-test ls /var/log/agent-app
+ls: cannot open directory '/var/log/agent-app': Permission denied
+--- exit=2  PASS (차단 확인됨) ---
+
+### 2026-08-10 00:18:54  [NEGATIVE TEST]
+$ sudo -u agent-dev ls /home/agent-admin
+ls: cannot open directory '/home/agent-admin': Permission denied
+--- exit=2  PASS (차단 확인됨) ---
+
+
+############################################################
+# 증거 5 — 앱 Boot Sequence 5단계 [OK] 및 Agent READY
+############################################################
+
+### 2026-08-10 00:18:54
+$ sed -n '/Starting Agent Boot Sequence/,/Agent READY/p' '/home/agent-admin/agent-app/app-boot.log' | tail -20
+   ... Port 15034 is available.
+[5/5] Verifying Log Permission            [OK]
+   ... Log directory is writable: /var/log/agent-app
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+>>> Starting Agent Boot Sequence...
+[1/5] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=1001)
+[2/5] Verifying Environment Variables     [OK]
+   ... All required Envs correct
+[3/5] Checking Required Files             [OK]
+   ... Verified 'secret.key' with correct key string.
+[4/5] Checking Port Availability          [OK]
+   ... Port 15034 is available.
+[5/5] Verifying Log Permission            [OK]
+   ... Log directory is writable: /var/log/agent-app
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+--- exit=0 ---
+
+### 2026-08-10 00:18:54
+$ ps -eo pid,user,args --no-headers | grep 'agent-app-linux-arm[6]4' | grep -v grep
+   6321 agent-a+ ./agent-app-linux-arm64
+   6323 agent-a+ ./agent-app-linux-arm64
+--- exit=0 ---
+
+### 2026-08-10 00:18:54
+$ ss -tuln | grep ':15034 '
+tcp   LISTEN 0      1            0.0.0.0:15034      0.0.0.0:*          
+--- exit=0 ---
+
+
+############################################################
+# 증거 6 — monitor.sh 실행 결과 (프로세스/포트/리소스/경고)
+############################################################
+
+### 2026-08-10 00:18:54
+$ ls -l '/home/agent-admin/agent-app/bin/monitor.sh'
+-rwxr-x---+ 1 agent-dev agent-core 10990 Aug  9 22:44 /home/agent-admin/agent-app/bin/monitor.sh
+--- exit=0 ---
+
+### 2026-08-10 00:18:55
+$ sudo -u agent-admin '/home/agent-admin/agent-app/bin/monitor.sh'; echo "(exit=$?)"
+====== SYSTEM MONITOR RESULT ======
+
+[HEALTH CHECK]
+Checking process 'agent-app-linux-arm[6]4'... [OK] (PID: 6321)
+Checking port 15034... [OK]
+
+[SECURITY CHECK]
+Checking firewall (ufw)... [OK] (enabled)
+
+[RESOURCE MONITORING]
+CPU Usage  : 8.6%
+MEM Usage  : 11.8%
+DISK Used  : 25%
+
+[WARNING] MEM threshold exceeded (11.8% > 10%)
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+(exit=0)
+--- exit=0 ---
+
+
+############################################################
+# 증거 7 — /var/log/agent-app/monitor.log 누적 기록 (최근 라인)
+############################################################
+
+### 2026-08-10 00:18:55
+$ sudo -u agent-admin bash -c 'wc -l < /var/log/agent-app/monitor.log' | xargs echo '총 라인 수:'
+총 라인 수: 121
+--- exit=0 ---
+
+### 2026-08-10 00:18:55
+$ sudo -u agent-admin tail -10 '/var/log/agent-app/monitor.log'
+[2026-08-10 00:07:02] PID:1807 CPU:7.6% MEM:10.7% DISK_USED:25%
+[2026-08-10 00:08:02] PID:1807 CPU:2.1% MEM:9.2% DISK_USED:25%
+[2026-08-10 00:12:02] PID:6321 CPU:1.9% MEM:9.1% DISK_USED:25%
+[2026-08-10 00:13:02] PID:6321 CPU:1.4% MEM:8.9% DISK_USED:25%
+[2026-08-10 00:14:02] PID:6321 CPU:2.1% MEM:9.0% DISK_USED:25%
+[2026-08-10 00:15:02] PID:6321 CPU:6.9% MEM:10.9% DISK_USED:25%
+[2026-08-10 00:16:02] PID:6321 CPU:7.5% MEM:11.6% DISK_USED:25%
+[2026-08-10 00:17:02] PID:6321 CPU:3.4% MEM:9.1% DISK_USED:25%
+[2026-08-10 00:18:02] PID:6321 CPU:8.9% MEM:12.1% DISK_USED:25%
+[2026-08-10 00:18:55] PID:6321 CPU:8.6% MEM:11.8% DISK_USED:25%
+--- exit=0 ---
+
+
+############################################################
+# 증거 8 — crontab 매분 실행 등록 및 자동 실행 확인
+############################################################
+
+### 2026-08-10 00:18:55
+$ crontab -l -u agent-admin
+# b1-1 시스템 관제 자동화
+# monitor.sh 를 매분 실행하고, cron 환경에서만 발생하는 오류를 cron.out 에 남긴다.
+* * * * * /home/agent-admin/agent-app/bin/monitor.sh >> /var/log/agent-app/cron.out 2>&1
+--- exit=0 ---
+
+### 2026-08-10 00:18:55
+$ ps -eo pid,user,comm --no-headers | grep cron
+     19 root     cron
+--- exit=0 ---
+
+### 2026-08-10 00:20:05
+$ echo '자동 누적 검증'
+       echo '  기준 : 2026-08-10 00:18:55  라인 수 121'
+       echo '  측정 : 2026-08-10 00:20:05  라인 수 123'
+       echo '  증가 : 2 줄'
+       [ 123 -gt 121 ] && echo '  판정 : PASS (cron 이 스스로 실행했다)' || echo '  판정 : FAIL'
+자동 누적 검증
+  기준 : 2026-08-10 00:18:55  라인 수 121
+  측정 : 2026-08-10 00:20:05  라인 수 123
+  증가 : 2 줄
+  판정 : PASS (cron 이 스스로 실행했다)
+--- exit=0 ---
+
+### 2026-08-10 00:20:05
+$ sudo -u agent-admin tail -3 '/var/log/agent-app/monitor.log'
+[2026-08-10 00:18:55] PID:6321 CPU:8.6% MEM:11.8% DISK_USED:25%
+[2026-08-10 00:19:02] PID:6321 CPU:7.1% MEM:11.7% DISK_USED:25%
+[2026-08-10 00:20:02] PID:6321 CPU:7.1% MEM:11.7% DISK_USED:25%
+--- exit=0 ---
+
+
+############################################################
+# 보너스 — report.sh 통계 리포트
+############################################################
+
+### 2026-08-10 00:20:05
+$ sudo -u agent-admin '/home/agent-admin/agent-app/bin/report.sh'
+    ====== STATISTICS REPORT ======
+      source : /var/log/agent-app/monitor.log
+
+      [CPU]
+        Average : 4.4%
+        Maximum : 52.0% at 2026-08-09 22:36:24
+        Minimum : 0.2% at 2026-08-09 23:37:02
+      [Memory]
+        Average : 9.5%
+        Maximum : 12.8% at 2026-08-09 22:43:02
+        Minimum : 8.8% at 2026-08-09 22:35:14
+      [Disk]
+        Average : 25.0%
+        Maximum : 25.0% at 2026-08-09 22:30:19
+        Minimum : 25.0% at 2026-08-09 22:30:19
+      [Samples]
+        Data Points: 123 samples
+        Range      : 2026-08-09 22:30:19 ~ 2026-08-10 00:20:02
+--- exit=0 ---
+
+
+############################################################
+# 보너스 — 임계값 경고 실제 발생 기록 (cron 자동 실행 중)
+############################################################
+
+### 2026-08-10 00:20:05
+$ grep -B5 'WARNING' '/var/log/agent-app/cron.out' | tail -20 || echo '(경고 없음)'
+[RESOURCE MONITORING]
+CPU Usage  : 8.9%
+MEM Usage  : 12.1%
+DISK Used  : 25%
+
+[WARNING] MEM threshold exceeded (12.1% > 10%)
+--
+[RESOURCE MONITORING]
+CPU Usage  : 7.1%
+MEM Usage  : 11.7%
+DISK Used  : 25%
+
+[WARNING] MEM threshold exceeded (11.7% > 10%)
+--
+[RESOURCE MONITORING]
+CPU Usage  : 7.1%
+MEM Usage  : 11.7%
+DISK Used  : 25%
+
+[WARNING] MEM threshold exceeded (11.7% > 10%)
+--- exit=0 ---
+
+
+############################################################
+# 보너스 — 로그 보존 정책 (archive_logs.sh)
+############################################################
+
+### 2026-08-10 00:20:05
+$ sudo -u agent-admin '/home/agent-admin/agent-app/bin/archive_logs.sh'; echo "(exit=$?)"
+====== LOG ARCHIVE / RETENTION ======
+source  : /var/log/agent-app
+archive : /var/log/monitor/agent-app/archive
+policy  : 7일 경과 압축 → 아카이브 이동, 30일 경과 아카이브 삭제
+
+[STEP 1] 7일 경과 로그 압축 및 이동
+  대상 없음 — 7일 이상 경과한 로그가 없습니다. (정상)
+
+[STEP 2] 30일 경과 아카이브 삭제
+  대상 없음 — 30일 이상 경과한 아카이브가 없습니다. (정상)
+
+====== SUMMARY ======
+compressed : 0
+deleted    : 0
+archive 현황:
+  파일 0개, 총 4.0K
+(exit=0)
+--- exit=0 ---
+

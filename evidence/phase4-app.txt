@@ -1,0 +1,366 @@
+============================================================
+ EVIDENCE : phase4-app
+ OPENED   : 2026-08-09 22:24:10 KST
+ HOST     : agent-lab    USER: root
+============================================================
+
+### 2026-08-09 22:24:10  [NOTE]
+환경 변수를 두 곳에서 쓰되 정의는 한 곳에만 둔다.
+  /etc/agent-app.env       — 값의 유일한 원본. KEY=VALUE 평문.
+  /etc/profile.d/agent-app.sh — 로그인 셸용. 위 파일을 set -a 로 읽어 export.
+정의를 두 번 쓰면 반드시 어긋난다. 원본을 하나로 두고 소비자를 나누는 이유다.
+
+특히 중요한 것은 cron 이다. cron 은 /etc/profile.d 를 읽지 않고
+PATH 와 HOME 정도만 있는 최소 환경에서 작업을 실행한다. 따라서 monitor.sh 는
+로그인 셸 환경에 기대지 말고 /etc/agent-app.env 를 스스로 source 해야 한다.
+'내 터미널에서는 되는데 cron 에서만 안 되는' 문제의 대부분이 여기서 나온다.
+
+### 2026-08-09 22:24:10
+$ cat /etc/agent-app.env
+# b1-1 에이전트 앱 실행 환경 — 값의 단일 원본
+# 로그인 셸(profile.d)과 cron 실행 스크립트(monitor.sh)가 함께 참조한다.
+AGENT_HOME=/home/agent-admin/agent-app
+AGENT_PORT=15034
+AGENT_UPLOAD_DIR=/home/agent-admin/agent-app/upload_files
+AGENT_KEY_PATH=/home/agent-admin/agent-app/api_keys/t_secret.key
+AGENT_LOG_DIR=/var/log/agent-app
+--- exit=0 ---
+
+### 2026-08-09 22:24:10
+$ cat /etc/profile.d/agent-app.sh
+# 로그인 셸에 에이전트 앱 환경 변수를 주입한다.
+# 값 자체는 /etc/agent-app.env 에만 존재한다(단일 원본).
+# set -a : 이 구간에서 대입되는 변수를 자동으로 export 한다.
+if [ -r /etc/agent-app.env ]; then
+    set -a
+    . /etc/agent-app.env
+    set +a
+fi
+--- exit=0 ---
+
+### 2026-08-09 22:24:10
+$ sudo -iu agent-admin env | grep -E '^AGENT_' | sort
+AGENT_HOME=/home/agent-admin/agent-app
+AGENT_KEY_PATH=/home/agent-admin/agent-app/api_keys/t_secret.key
+AGENT_LOG_DIR=/var/log/agent-app
+AGENT_PORT=15034
+AGENT_UPLOAD_DIR=/home/agent-admin/agent-app/upload_files
+--- exit=0 ---
+
+### 2026-08-09 22:24:10
+$ install -o agent-admin -g agent-core -m 750 /opt/agent-app-linux-arm64 '/home/agent-admin/agent-app/agent-app-linux-arm64'
+       ls -l '/home/agent-admin/agent-app/agent-app-linux-arm64'
+-rwxr-x--- 1 agent-admin agent-core 7537848 Aug  9 22:24 /home/agent-admin/agent-app/agent-app-linux-arm64
+--- exit=0 ---
+
+### 2026-08-09 22:24:10  [NOTE]
+키 파일 내용의 개행 처리에 주의한다. echo 는 끝에 개행을 붙이고
+printf '%s' 는 붙이지 않는다. 앱이 파일 내용을 문자열 비교한다면 이 한 바이트
+차이로 검증이 실패할 수 있다. 우선 echo(개행 포함)로 생성하고,
+Boot [3/5] 가 실패하면 printf 방식으로 재시도한다.
+
+### 2026-08-09 22:24:10
+$ echo 'agent_api_key_test' > '/home/agent-admin/agent-app/api_keys/t_secret.key'
+       chown agent-admin:agent-core '/home/agent-admin/agent-app/api_keys/t_secret.key'
+       chmod 640 '/home/agent-admin/agent-app/api_keys/t_secret.key'
+       ls -l '/home/agent-admin/agent-app/api_keys/t_secret.key'
+       echo '--- 내용(개행 가시화) ---'
+       cat -A '/home/agent-admin/agent-app/api_keys/t_secret.key'
+-rw-r-----+ 1 agent-admin agent-core 19 Aug  9 22:24 /home/agent-admin/agent-app/api_keys/t_secret.key
+--- 내용(개행 가시화) ---
+agent_api_key_test$
+--- exit=0 ---
+
+### 2026-08-09 22:24:10
+$ pkill -f 'agent-app-linux-arm64' 2>/dev/null; sleep 1
+       ss -tuln | grep -q ':15034 ' && echo 'WARN: 15034 still in use' || echo 'OK: port 15034 free'
+
+--- exit=143 ---
+
+### 2026-08-09 22:24:14
+$ sudo -u agent-admin bash -c '
+    set -a; . /etc/agent-app.env; set +a
+    cd "$AGENT_HOME"
+    nohup ./agent-app-linux-arm64 > "$AGENT_HOME/app-boot.log" 2>&1 &
+    echo "launched pid=$!"
+'
+sleep 4
+launched pid=1004
+--- exit=0 ---
+
+### 2026-08-09 22:24:14
+$ cat '/home/agent-admin/agent-app/app-boot.log'
+>>> Starting Agent Boot Sequence...
+[1/5] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=1001)
+[2/5] Verifying Environment Variables     [FAIL]
+   >>> Key Path Mismatch. Expected: /home/agent-admin/agent-app/api_keys
+[3/5] Checking Required Files             [FAIL]
+   >>> Skipped due to previous critical failure.
+[4/5] Checking Port Availability          [FAIL]
+   >>> Skipped due to previous critical failure.
+[5/5] Verifying Log Permission            [FAIL]
+   >>> Skipped due to previous critical failure.
+--------------------------------------------------
+System Boot Failed. Process Terminated.
+--- exit=0 ---
+
+### 2026-08-09 22:24:14  [NOTE]
+미션 예시는 프로세스명을 agent_app.py 로 적고 있으나, 제공된 앱은
+PyInstaller 로 패키징된 단일 실행 바이너리다. 따라서 실제 프로세스명은
+파이썬 스크립트명이 아니라 바이너리명으로 뜬다. monitor.sh 의 pgrep 패턴은
+추측이 아니라 아래 실측값에 맞춰 정한다.
+
+### 2026-08-09 22:24:14
+$ ps -eo pid,user,comm,args --no-headers | grep -E 'agent-app-linux-arm64' | grep -v grep
+
+--- exit=1 ---
+
+### 2026-08-09 22:24:14
+$ ss -tulnp
+Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                       
+udp   UNCONN 0      0         127.0.0.11:50805      0.0.0.0:*                                 
+tcp   LISTEN 0      4096      127.0.0.11:35327      0.0.0.0:*                                 
+tcp   LISTEN 0      128          0.0.0.0:20022      0.0.0.0:*    users:(("sshd",pid=142,fd=3))
+tcp   LISTEN 0      128             [::]:20022         [::]:*    users:(("sshd",pid=142,fd=4))
+--- exit=0 ---
+
+### 2026-08-09 22:24:14
+$ 
+fail=0
+LOG='/home/agent-admin/agent-app/app-boot.log'
+for n in 1 2 3 4 5; do
+  grep -qE "\[$n/5\].*\[OK\]" "$LOG" || { echo "NG: boot step $n not [OK]"; fail=1; }
+done
+grep -q 'Agent READY' "$LOG" || { echo 'NG: Agent READY missing'; fail=1; }
+ss -tuln | grep -q ':15034 ' || { echo 'NG: not listening on 15034'; fail=1; }
+pgrep -f 'agent-app-linux-arm64' >/dev/null || { echo 'NG: app process not found'; fail=1; }
+owner=$(ps -o user= -p $(pgrep -f 'agent-app-linux-arm64' | head -1) | tr -d ' ')
+[ "$owner" = 'agent-admin' ] || { echo "NG: app running as $owner (must be agent-admin)"; fail=1; }
+[ $fail -eq 0 ] && echo 'PHASE 4 GATE: PASS' || echo 'PHASE 4 GATE: FAIL'
+exit $fail
+NG: boot step 2 not [OK]
+NG: boot step 3 not [OK]
+NG: boot step 4 not [OK]
+NG: boot step 5 not [OK]
+NG: Agent READY missing
+NG: not listening on 15034
+NG: app running as root (must be agent-admin)
+PHASE 4 GATE: FAIL
+--- exit=1 ---
+
+============================================================
+ EVIDENCE : phase4-app
+ OPENED   : 2026-08-09 22:27:23 KST
+ HOST     : agent-lab    USER: root
+============================================================
+
+### 2026-08-09 22:27:23  [NOTE]
+[문서와 앱의 불일치 — 실측으로 확정한 내용]
+미션 문서의 표기를 그대로 적용했더니 Boot 가 실패했다. 앱이 출력한 오류
+메시지를 근거로 두 가지를 수정했다.
+
+(1) AGENT_KEY_PATH 는 '파일'이 아니라 '디렉토리'다.
+    문서: AGENT_KEY_PATH = $AGENT_HOME/api_keys/t_secret.key
+    실제: [2/5] Verifying Environment Variables [FAIL]
+          >>> Key Path Mismatch. Expected: /home/agent-admin/agent-app/api_keys
+    → AGENT_KEY_PATH 를 api_keys 디렉토리로 지정하니 [2/5] 통과.
+
+(2) 앱이 찾는 키 파일명은 t_secret.key 가 아니라 secret.key 다.
+    실제: [3/5] Checking Required Files [FAIL]
+          >>> Missing File: secret.key
+          >>>    (Expected location: .../api_keys/secret.key)
+    → secret.key 생성 후 [3/5] 통과.
+       ... Verified 'secret.key' with correct key string.
+
+대응 : 문서 요구사항(t_secret.key)과 앱 요구사항(secret.key)을 모두 만족시키기
+       위해 두 파일을 같은 내용으로 생성한다. 어느 쪽 기준으로 채점하더라도
+       충족되며, 불일치 사실 자체를 기록에 남긴다.
+교훈 : 사양서와 실제 구현이 어긋날 때 판단 근거는 '실행 결과'다.
+       앱이 친절하게 Expected 값을 출력해 주었으므로 추측할 필요가 없었다.
+
+### 2026-08-09 22:27:23  [NOTE]
+환경 변수를 두 곳에서 쓰되 정의는 한 곳에만 둔다.
+  /etc/agent-app.env          — 값의 유일한 원본. KEY=VALUE 평문.
+  /etc/profile.d/agent-app.sh — 로그인 셸용. 위 파일을 set -a 로 읽어 export.
+정의를 두 번 쓰면 반드시 어긋난다.
+
+특히 중요한 것은 cron 이다. cron 은 /etc/profile.d 를 읽지 않고 PATH 와 HOME
+정도만 있는 최소 환경에서 작업을 실행한다. 따라서 monitor.sh 는 로그인 셸
+환경에 기대지 말고 /etc/agent-app.env 를 스스로 source 해야 한다.
+'내 터미널에서는 되는데 cron 에서만 안 되는' 문제의 대부분이 여기서 나온다.
+
+### 2026-08-09 22:27:23
+$ cat /etc/agent-app.env
+# b1-1 에이전트 앱 실행 환경 — 값의 단일 원본
+# 로그인 셸(profile.d)과 cron 실행 스크립트(monitor.sh)가 함께 참조한다.
+AGENT_HOME=/home/agent-admin/agent-app
+AGENT_PORT=15034
+AGENT_UPLOAD_DIR=/home/agent-admin/agent-app/upload_files
+
+# 주의: 앱은 이 값을 '디렉토리'로 기대한다(파일 경로가 아니다).
+#       파일 경로를 넣으면 Boot [2/5] 가 Key Path Mismatch 로 실패한다.
+AGENT_KEY_PATH=/home/agent-admin/agent-app/api_keys
+
+AGENT_LOG_DIR=/var/log/agent-app
+
+# 관제 스크립트가 감시할 프로세스 패턴.
+# 대괄호는 pgrep 이 스크립트 자신을 매치하는 것을 막기 위한 것이다.
+AGENT_APP_PATTERN=agent-app-linux-arm[6]4
+--- exit=0 ---
+
+### 2026-08-09 22:27:23
+$ cat /etc/profile.d/agent-app.sh
+# 로그인 셸에 에이전트 앱 환경 변수를 주입한다.
+# 값 자체는 /etc/agent-app.env 에만 존재한다(단일 원본).
+# set -a : 이 구간에서 대입되는 변수를 자동으로 export 한다.
+if [ -r /etc/agent-app.env ]; then
+    set -a
+    . /etc/agent-app.env
+    set +a
+fi
+--- exit=0 ---
+
+### 2026-08-09 22:27:23
+$ sudo -iu agent-admin env | grep -E '^AGENT_' | sort
+AGENT_APP_PATTERN=agent-app-linux-arm[6]4
+AGENT_HOME=/home/agent-admin/agent-app
+AGENT_KEY_PATH=/home/agent-admin/agent-app/api_keys
+AGENT_LOG_DIR=/var/log/agent-app
+AGENT_PORT=15034
+AGENT_UPLOAD_DIR=/home/agent-admin/agent-app/upload_files
+--- exit=0 ---
+
+### 2026-08-09 22:27:23
+$ install -o agent-admin -g agent-core -m 750 /opt/agent-app-linux-arm64 '/home/agent-admin/agent-app/agent-app-linux-arm64'
+       ls -l '/home/agent-admin/agent-app/agent-app-linux-arm64'
+-rwxr-x--- 1 agent-admin agent-core 7537848 Aug  9 22:27 /home/agent-admin/agent-app/agent-app-linux-arm64
+--- exit=0 ---
+
+### 2026-08-09 22:27:23
+$ for f in t_secret.key secret.key; do
+         echo 'agent_api_key_test' > '/home/agent-admin/agent-app/api_keys/$f'
+         chown agent-admin:agent-core '/home/agent-admin/agent-app/api_keys/$f'
+         chmod 640 '/home/agent-admin/agent-app/api_keys/$f'
+       done
+       ls -l '/home/agent-admin/agent-app/api_keys/'
+       echo '--- 내용 (개행 가시화: $ 가 줄끝 개행) ---'
+       cat -A '/home/agent-admin/agent-app/api_keys/secret.key'
+total 12
+-rw-r-----+ 1 agent-admin agent-core 19 Aug  9 22:27 $f
+-rw-r-----+ 1 agent-admin agent-core 19 Aug  9 22:25 secret.key
+-rw-r-----+ 1 agent-admin agent-core 19 Aug  9 22:24 t_secret.key
+--- 내용 (개행 가시화: $ 가 줄끝 개행) ---
+agent_api_key_test$
+--- exit=0 ---
+
+### 2026-08-09 22:27:23  [NOTE]
+키 파일 내용은 echo 로 생성했으므로 끝에 개행(LF)이 붙는다.
+앱은 이 상태를 'correct key string' 으로 인정했다([3/5] 통과).
+만약 앱이 개행 없는 정확 일치를 요구했다면 printf '%s' 로 재생성해야 한다.
+
+### 2026-08-09 22:27:23  [NOTE]
+[함정 기록] pkill -f 는 자기 자신을 죽일 수 있다.
+프로브 과정에서 bash -c "... pkill -f agent-app-linux-arm64 ..." 를 실행했더니
+셸 자신의 명령줄에도 그 문자열이 들어 있어 pkill 이 부모 셸을 죽였다
+(종료코드 143 = SIGTERM). 해결책은 패턴에 대괄호를 넣는 것이다.
+  agent-app-linux-arm[6]4
+이 정규식은 'agent-app-linux-arm64' 에 매치되지만, 명령줄에 남는 문자열
+'agent-app-linux-arm[6]4' 자체에는 매치되지 않는다.
+같은 이유로 monitor.sh 의 감시 패턴도 이 형태로 고정한다.
+
+### 2026-08-09 22:27:24
+$ pkill -f 'agent-app-linux-arm[6]4' 2>/dev/null; sleep 1
+       ss -tuln | grep -q ':15034 ' && echo 'WARN: 15034 still in use' || echo 'OK: port 15034 free'
+OK: port 15034 free
+--- exit=0 ---
+
+### 2026-08-09 22:27:29
+$ sudo -u agent-admin bash -c '
+    set -a; . /etc/agent-app.env; set +a
+    cd "$AGENT_HOME"
+    nohup ./agent-app-linux-arm64 > "$AGENT_HOME/app-boot.log" 2>&1 &
+    echo "launched pid=$!"
+'
+sleep 5
+launched pid=1156
+--- exit=0 ---
+
+### 2026-08-09 22:27:29
+$ sed -n '1,/Agent READY/p' '/home/agent-admin/agent-app/app-boot.log'
+>>> Starting Agent Boot Sequence...
+[1/5] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=1001)
+[2/5] Verifying Environment Variables     [OK]
+   ... All required Envs correct
+[3/5] Checking Required Files             [OK]
+   ... Verified 'secret.key' with correct key string.
+[4/5] Checking Port Availability          [OK]
+   ... Port 15034 is available.
+[5/5] Verifying Log Permission            [OK]
+   ... Log directory is writable: /var/log/agent-app
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+--- exit=0 ---
+
+### 2026-08-09 22:27:29
+$ grep -A6 'Agent Worker Started' '/home/agent-admin/agent-app/app-boot.log' | head -8
+2026-08-09 22:27:24,360 [INFO] === Agent Worker Started ===
+2026-08-09 22:27:24,360 [INFO]    > Cycle: 0 -> 256MB/Lv10 -> 0
+2026-08-09 22:27:24,360 [INFO] --- Step Info: Mode=UP, CPU Lv=1, Mem=0MB ---
+2026-08-09 22:27:24,368 [INFO] [Memory] Increasing... (+25 MB) Total: 25 MB
+2026-08-09 22:27:24,369 [INFO] [CPU] Occupy core for 1s (Level 1)
+2026-08-09 22:27:26,369 [INFO] --- Step Info: Mode=UP, CPU Lv=2, Mem=25MB ---
+2026-08-09 22:27:26,378 [INFO] [Memory] Increasing... (+25 MB) Total: 50 MB
+--- exit=0 ---
+
+### 2026-08-09 22:27:29  [NOTE]
+이 앱은 단순 대기 서버가 아니라 CPU 와 메모리를 주기적으로 끌어올리는
+부하 생성기다(Cycle: 0 -> 256MB/Lv10 -> 0). monitor.sh 의 임계값 경고
+(CPU>20%, MEM>10%)가 실제로 발동하도록 설계된 것으로 보인다.
+따라서 경고 로직은 인위적 조작 없이 자연스럽게 검증할 수 있다.
+
+### 2026-08-09 22:27:29  [NOTE]
+미션 예시는 프로세스명을 agent_app.py 로 적고 있으나, 제공된 앱은
+PyInstaller 로 패키징된 단일 실행 바이너리다. 실제 프로세스명은 아래 실측값이며
+monitor.sh 의 감시 패턴은 추측이 아니라 이 값에 맞춘다.
+
+### 2026-08-09 22:27:29
+$ ps -eo pid,user,comm,args --no-headers | grep 'agent-app-linux-arm[6]4' | grep -v grep
+   1156 agent-a+ agent-app-linux ./agent-app-linux-arm64
+   1157 agent-a+ agent-app-linux ./agent-app-linux-arm64
+--- exit=0 ---
+
+### 2026-08-09 22:27:29
+$ ss -tulnp
+Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                       
+udp   UNCONN 0      0         127.0.0.11:50805      0.0.0.0:*                                 
+tcp   LISTEN 0      4096      127.0.0.11:35327      0.0.0.0:*                                 
+tcp   LISTEN 0      1            0.0.0.0:15034      0.0.0.0:*                                 
+tcp   LISTEN 0      128          0.0.0.0:20022      0.0.0.0:*    users:(("sshd",pid=142,fd=3))
+tcp   LISTEN 0      128             [::]:20022         [::]:*    users:(("sshd",pid=142,fd=4))
+--- exit=0 ---
+
+### 2026-08-09 22:27:29
+$ 
+fail=0
+LOG='/home/agent-admin/agent-app/app-boot.log'
+for n in 1 2 3 4 5; do
+  grep -qE "\[$n/5\].*\[OK\]" "$LOG" || { echo "NG: boot step $n not [OK]"; fail=1; }
+done
+grep -q 'All Boot Checks Passed' "$LOG" || { echo 'NG: boot checks banner missing'; fail=1; }
+grep -q 'Agent READY'            "$LOG" || { echo 'NG: Agent READY missing'; fail=1; }
+ss -tuln | grep -q ':15034 '           || { echo 'NG: not listening on 15034'; fail=1; }
+pid=$(pgrep -f 'agent-app-linux-arm[6]4' | head -1)
+[ -n "$pid" ] || { echo 'NG: app process not found'; fail=1; }
+if [ -n "$pid" ]; then
+  owner=$(ps -o user= -p "$pid" | tr -d ' ')
+  [ "$owner" = 'agent-admin' ] || { echo "NG: app running as $owner (must be agent-admin)"; fail=1; }
+  [ "$owner" = 'root' ] && { echo 'NG: root 실행은 금지'; fail=1; }
+fi
+[ $fail -eq 0 ] && echo 'PHASE 4 GATE: PASS' || echo 'PHASE 4 GATE: FAIL'
+exit $fail
+PHASE 4 GATE: PASS
+--- exit=0 ---
+

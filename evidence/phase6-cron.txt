@@ -1,0 +1,429 @@
+============================================================
+ EVIDENCE : phase6-cron
+ OPENED   : 2026-08-09 22:31:16 KST
+ HOST     : agent-lab    USER: root
+============================================================
+
+### 2026-08-09 22:31:16  [NOTE]
+cron 등록에서 가장 흔한 실패는 문법 오류가 아니라
+'cron 데몬이 아예 안 돌고 있는 것'이다. 등록은 성공하고 아무 일도 일어나지
+않으므로 원인을 찾기 어렵다. 등록 전에 데몬부터 확인한다.
+
+### 2026-08-09 22:31:16
+$ ps -eo pid,user,comm --no-headers | grep cron || echo 'NG: cron not running'
+     19 root     cron
+--- exit=0 ---
+
+### 2026-08-09 22:31:16  [NOTE]
+리디렉션을 /dev/null 이 아니라 cron.out 으로 보내는 이유:
+cron 은 최소 환경에서 실행되므로 대화형 셸에서는 나지 않던 오류가 여기서만
+발생한다. 출력을 버리면 그 오류를 영영 볼 수 없다. cron.out 은 'cron 환경에서만
+생기는 문제'를 잡는 유일한 창구다.
+
+### 2026-08-09 22:31:16
+$ sudo -u agent-admin crontab -l
+# b1-1 시스템 관제 자동화
+# monitor.sh 를 매분 실행하고, cron 환경에서만 발생하는 오류를 cron.out 에 남긴다.
+* * * * * /home/agent-admin/agent-app/bin/monitor.sh >> /var/log/agent-app/cron.out 2>&1
+--- exit=0 ---
+
+### 2026-08-09 22:31:16
+$ sudo -u agent-admin bash -c 'wc -l < /var/log/agent-app/monitor.log'
+1
+--- exit=0 ---
+
+### 2026-08-09 22:31:16  [NOTE]
+기준 시각: 2026-08-09 22:31:16 / 기준 라인 수: 1
+자동 실행의 증명은 '전후 두 시점의 측정값'이 있어야 성립한다.
+한 시점의 로그만 보여 주면 수동 실행과 구별되지 않는다.
+
+### 2026-08-09 22:33:36
+$ echo '기준 시각 : 2026-08-09 22:31:16   라인 수: 1'
+       echo '측정 시각 : 2026-08-09 22:33:36   라인 수: 3'
+       echo "증가분   : $(( 3 - 1 )) 줄"
+기준 시각 : 2026-08-09 22:31:16   라인 수: 1
+측정 시각 : 2026-08-09 22:33:36   라인 수: 3
+증가분   : 2 줄
+--- exit=0 ---
+
+### 2026-08-09 22:33:36
+$ sudo -u agent-admin tail -6 /var/log/agent-app/monitor.log
+[2026-08-09 22:30:19] PID:1807 CPU:2.3% MEM:8.9% DISK_USED:25%
+[2026-08-09 22:32:02] PID:1807 CPU:2.7% MEM:8.9% DISK_USED:25%
+[2026-08-09 22:33:02] PID:1807 CPU:1.4% MEM:9.0% DISK_USED:25%
+--- exit=0 ---
+
+### 2026-08-09 22:33:36  [NOTE]
+타임스탬프가 정확히 1분 간격으로 찍혀 있다면 cron 이 스케줄대로
+실행한 것이다. 수동 실행이었다면 간격이 불규칙했을 것이다.
+
+### 2026-08-09 22:33:36
+$ grep -i cron /var/log/syslog 2>/dev/null | tail -5 || echo '(syslog 미사용 환경 — cron.out 으로 대체 확인)'
+
+--- exit=0 ---
+
+### 2026-08-09 22:33:36
+$ if [ -s /var/log/agent-app/cron.out ]; then
+         echo '--- cron.out 내용 (마지막 25줄) ---'
+         sudo -u agent-admin tail -25 /var/log/agent-app/cron.out
+       else
+         echo 'cron.out 비어 있음 = cron 환경에서 오류 없음'
+       fi
+--- cron.out 내용 (마지막 25줄) ---
+[RESOURCE MONITORING]
+CPU Usage  : 2.7%
+MEM Usage  : 8.9%
+DISK Used  : 25%
+
+[INFO] All resources within thresholds
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+====== SYSTEM MONITOR RESULT ======
+
+[HEALTH CHECK]
+Checking process 'agent-app-linux-arm[6]4'... [OK] (PID: 1807)
+Checking port 15034... [OK]
+
+[SECURITY CHECK]
+Checking firewall (ufw)... [OK] (enabled)
+
+[RESOURCE MONITORING]
+CPU Usage  : 1.4%
+MEM Usage  : 9.0%
+DISK Used  : 25%
+
+[INFO] All resources within thresholds
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+--- exit=0 ---
+
+### 2026-08-09 22:33:36  [NOTE]
+제공 앱이 CPU/메모리를 주기적으로 끌어올리므로, 시간이 지나면
+임계값 경고가 자연스럽게 발생한다. 인위적 부하 없이 경고 로직이 동작하는지
+확인한다.
+
+### 2026-08-09 22:33:36
+$ grep -c 'WARNING' /var/log/agent-app/cron.out 2>/dev/null || echo 0
+0
+0
+--- exit=0 ---
+
+### 2026-08-09 22:33:36
+$ grep 'WARNING' /var/log/agent-app/cron.out 2>/dev/null | tail -5 || echo '(이번 구간에는 경고 미발생)'
+
+--- exit=0 ---
+
+### 2026-08-09 22:33:36
+$ sudo -u agent-admin tail -10 /var/log/agent-app/monitor.log | awk '{print $3, $4, $5, $6}'
+PID:1807 CPU:2.3% MEM:8.9% DISK_USED:25%
+PID:1807 CPU:2.7% MEM:8.9% DISK_USED:25%
+PID:1807 CPU:1.4% MEM:9.0% DISK_USED:25%
+--- exit=0 ---
+
+### 2026-08-09 22:33:36
+$ 
+fail=0
+pgrep -x cron >/dev/null || { echo 'NG: cron daemon not running'; fail=1; }
+sudo -u agent-admin crontab -l | grep -q 'monitor.sh' || { echo 'NG: crontab entry missing'; fail=1; }
+sudo -u agent-admin crontab -l | grep -qE '^\* \* \* \* \*' || { echo 'NG: not scheduled every minute'; fail=1; }
+[ 3 -gt 1 ] || { echo 'NG: monitor.log did not grow (자동 실행 안 됨)'; fail=1; }
+[ $(( 3 - 1 )) -ge 2 ] || { echo 'NG: 2분 대기했으나 2회 미만 실행됨'; fail=1; }
+tail -1 /var/log/agent-app/monitor.log | grep -qE '^\[[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\] PID:[0-9]+ CPU:[0-9.]+% MEM:[0-9.]+% DISK_USED:[0-9]+%$' || { echo 'NG: log format'; fail=1; }
+[ $fail -eq 0 ] && echo 'PHASE 6 GATE: PASS' || echo 'PHASE 6 GATE: FAIL'
+exit $fail
+PHASE 6 GATE: PASS
+--- exit=0 ---
+
+============================================================
+ EVIDENCE : phase6-cron
+ OPENED   : 2026-08-09 22:35:01 KST
+ HOST     : agent-lab    USER: root
+============================================================
+
+### 2026-08-09 22:35:01  [NOTE]
+[임계값 경고 실증 — 왜 별도 검증이 필요한가]
+Phase 6 의 cron 누적 구간에서는 임계값 경고가 한 번도 뜨지 않았다.
+원인은 스크립트 결함이 아니라 장비 규모다.
+  - CPU 20 코어 → 앱이 코어 하나를 100% 써도 시스템 전체로는 5%
+  - MEM 119.6GB → 앱이 256MB 를 잡아도 전체 비율은 0.2% 남짓
+요구사항의 임계값(CPU 20%, MEM 10%)은 소형 VM 기준으로 잡힌 값이라
+이 장비에서는 평상시 부하로 도달하지 않는다.
+
+따라서 경고 경로를 두 가지 방법으로 각각 실증한다.
+  (1) CPU  — 실제 부하를 걸어 진짜로 20% 를 넘긴다. 측정값도 경고도 모두 진짜다.
+  (2) MEM/DISK — 119GB 메모리와 디스크를 한계까지 채우는 것은 위험하고 무의미하므로,
+      임계값을 낮춰 주입하는 방식으로 비교·분기 로직이 동작함을 확인한다.
+      스크립트의 기본값은 요구사항 그대로(20/10/80) 유지되며 변경하지 않았다.
+
+### 2026-08-09 22:35:01
+$ echo "CPU cores : $(nproc)"
+       awk '/MemTotal/{printf "MemTotal  : %.1f GB\n", $2/1024/1024}' /proc/meminfo
+       echo "코어 1개를 100% 점유해도 시스템 전체로는 $(awk -v n=$(nproc) 'BEGIN{printf "%.1f", 100/n}')%"
+CPU cores : 20
+MemTotal  : 119.6 GB
+코어 1개를 100% 점유해도 시스템 전체로는 5.0%
+--- exit=0 ---
+
+### 2026-08-09 22:35:01  [NOTE]
+20코어 중 8개를 점유해 시스템 CPU 사용률을 40% 안팎으로 올린다.
+monitor.sh 는 /proc/stat 을 1초 간격으로 샘플링하므로 이 구간의 실제
+사용률이 그대로 측정된다. 부하는 12초 후 자동 종료된다.
+
+### 2026-08-09 22:35:13
+$ for i in $(seq 1 8); do timeout 12 bash -c "while :; do :; done" & done
+       echo "부하 생성기 8개 기동 (12초 후 자동 종료)"
+       sleep 2
+부하 생성기 8개 기동 (12초 후 자동 종료)
+--- exit=0 ---
+
+### 2026-08-09 22:35:14
+$ sudo -u agent-admin '/home/agent-admin/agent-app/bin/monitor.sh'; echo "(exit=$?)"
+====== SYSTEM MONITOR RESULT ======
+
+[HEALTH CHECK]
+Checking process 'agent-app-linux-arm[6]4'... [OK] (PID: 1807)
+Checking port 15034... [OK]
+
+[SECURITY CHECK]
+Checking firewall (ufw)... [OK] (enabled)
+
+[RESOURCE MONITORING]
+CPU Usage  : 1.7%
+MEM Usage  : 8.8%
+DISK Used  : 25%
+
+[INFO] All resources within thresholds
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+(exit=0)
+--- exit=0 ---
+
+### 2026-08-09 22:35:14  [NOTE]
+위 출력에서 CPU Usage 가 20% 를 넘고 [WARNING] CPU threshold exceeded 가
+출력되었는지 확인할 것. 부하는 실제이며 측정값도 실제다.
+
+### 2026-08-09 22:35:17
+$ wait 2>/dev/null; sleep 3; echo "부하 종료 대기 완료"
+부하 종료 대기 완료
+--- exit=0 ---
+
+### 2026-08-09 22:35:18
+$ sudo -u agent-admin '/home/agent-admin/agent-app/bin/monitor.sh' | grep -E 'CPU Usage|WARNING|All resources'; echo "(exit=$?)"
+CPU Usage  : 0.8%
+[INFO] All resources within thresholds
+(exit=0)
+--- exit=0 ---
+
+### 2026-08-09 22:35:18  [NOTE]
+실제 사용률은 그대로 두고 임계값만 낮춰 실행한다.
+'현재 MEM 9% > 임계값 1%' 이므로 경고가 발생해야 한다.
+이는 수치를 조작하는 것이 아니라, 비교 대상을 바꿔 분기를 태우는 방식이다.
+
+### 2026-08-09 22:35:19
+$ sudo -u agent-admin env MEM_THRESHOLD=1 '/home/agent-admin/agent-app/bin/monitor.sh' | grep -E 'MEM Usage|WARNING'; echo "(exit=$?)"
+MEM Usage  : 8.8%
+[WARNING] MEM threshold exceeded (8.8% > 1%)
+(exit=0)
+--- exit=0 ---
+
+### 2026-08-09 22:35:20
+$ sudo -u agent-admin env DISK_THRESHOLD=1 '/home/agent-admin/agent-app/bin/monitor.sh' | grep -E 'DISK Used|WARNING'; echo "(exit=$?)"
+DISK Used  : 25%
+[WARNING] DISK threshold exceeded (25% > 1%)
+(exit=0)
+--- exit=0 ---
+
+### 2026-08-09 22:35:21
+$ sudo -u agent-admin env CPU_THRESHOLD=0 MEM_THRESHOLD=1 DISK_THRESHOLD=1 '/home/agent-admin/agent-app/bin/monitor.sh'; echo "(exit=$?)"
+====== SYSTEM MONITOR RESULT ======
+
+[HEALTH CHECK]
+Checking process 'agent-app-linux-arm[6]4'... [OK] (PID: 1807)
+Checking port 15034... [OK]
+
+[SECURITY CHECK]
+Checking firewall (ufw)... [OK] (enabled)
+
+[RESOURCE MONITORING]
+CPU Usage  : 1.8%
+MEM Usage  : 8.8%
+DISK Used  : 25%
+
+[WARNING] CPU threshold exceeded (1.8% > 0%)
+[WARNING] MEM threshold exceeded (8.8% > 1%)
+[WARNING] DISK threshold exceeded (25% > 1%)
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+(exit=0)
+--- exit=0 ---
+
+### 2026-08-09 22:35:21  [NOTE]
+세 경고가 모두 출력되면서도 exit=0 으로 정상 종료되고 로그가 기록되는지
+확인할 것. 경고는 흐름을 끊지 않는다는 요구사항이 지켜지는 지점이다.
+
+### 2026-08-09 22:35:21
+$ grep -E 'CPU_THRESHOLD=|MEM_THRESHOLD=|DISK_THRESHOLD=' '/home/agent-admin/agent-app/bin/monitor.sh' | grep -v '^#'
+CPU_THRESHOLD="${CPU_THRESHOLD:-20}"
+MEM_THRESHOLD="${MEM_THRESHOLD:-10}"
+DISK_THRESHOLD="${DISK_THRESHOLD:-80}"
+--- exit=0 ---
+
+### 2026-08-09 22:35:21  [NOTE]
+환경 변수를 주지 않으면 CPU 20 / MEM 10 / DISK 80 으로 동작한다.
+요구사항의 기본 동작은 변경되지 않았다.
+
+### 2026-08-09 22:35:25
+$ 
+fail=0
+# 임계값 주입 시 경고가 실제로 출력되는지
+sudo -u agent-admin env CPU_THRESHOLD=0  '/home/agent-admin/agent-app/bin/monitor.sh' | grep -q 'WARNING. CPU threshold exceeded'  || { echo 'NG: CPU warning not emitted'; fail=1; }
+sudo -u agent-admin env MEM_THRESHOLD=1  '/home/agent-admin/agent-app/bin/monitor.sh' | grep -q 'WARNING. MEM threshold exceeded'  || { echo 'NG: MEM warning not emitted'; fail=1; }
+sudo -u agent-admin env DISK_THRESHOLD=1 '/home/agent-admin/agent-app/bin/monitor.sh' | grep -q 'WARNING. DISK threshold exceeded' || { echo 'NG: DISK warning not emitted'; fail=1; }
+# 경고가 나도 종료코드는 0 이어야 한다
+sudo -u agent-admin env CPU_THRESHOLD=0 MEM_THRESHOLD=1 DISK_THRESHOLD=1 '/home/agent-admin/agent-app/bin/monitor.sh' >/dev/null 2>&1 || { echo 'NG: 경고 시 exit != 0'; fail=1; }
+# 기본값 확인
+grep -q 'CPU_THRESHOLD:-20'  '/home/agent-admin/agent-app/bin/monitor.sh' || { echo 'NG: CPU default != 20'; fail=1; }
+grep -q 'MEM_THRESHOLD:-10'  '/home/agent-admin/agent-app/bin/monitor.sh' || { echo 'NG: MEM default != 10'; fail=1; }
+grep -q 'DISK_THRESHOLD:-80' '/home/agent-admin/agent-app/bin/monitor.sh' || { echo 'NG: DISK default != 80'; fail=1; }
+[ $fail -eq 0 ] && echo 'PHASE 6b GATE: PASS' || echo 'PHASE 6b GATE: FAIL'
+exit $fail
+PHASE 6b GATE: PASS
+--- exit=0 ---
+
+============================================================
+ EVIDENCE : phase6-cron
+ OPENED   : 2026-08-09 22:36:15 KST
+ HOST     : agent-lab    USER: root
+============================================================
+
+### 2026-08-09 22:36:15  [NOTE]
+[6b-2 실패 기록 — 원인 및 수정]
+증상 : CPU 부하 생성기 8개를 띄운 뒤 monitor.sh 를 실행했는데
+       CPU Usage 가 1.7% 로 측정되어 경고가 발생하지 않았다.
+원인 : 스크립트가 아니라 '측정 방법'의 결함이었다.
+       부하 생성을 rec 헬퍼(recsh)로 실행했는데, recsh 내부는
+         out="$(bash -c "$1" 2>&1)"
+       즉 명령 치환이다. 명령 치환은 stdout 파이프가 닫힐 때까지 기다리는데,
+       백그라운드 잡이 그 stdout 을 상속받으므로 12초 부하가 전부 끝날 때까지
+       블록된다. 결과적으로 '부하가 끝난 뒤에' monitor.sh 가 실행됐다.
+수정 : 부하 생성기의 stdin/stdout/stderr 를 모두 분리하고 setsid 로 떼어내
+       명령 치환이 기다리지 않게 한다. 그 상태에서 부하와 측정을 겹치게 한다.
+교훈 : 백그라운드 프로세스를 명령 치환 안에서 띄우면 비동기가 아니게 된다.
+       '실행은 됐는데 기대한 효과가 없다'면 측정 도구 자체를 의심해야 한다.
+
+### 2026-08-09 22:36:18
+$ echo "load average: $(cut -d' ' -f1-3 /proc/loadavg)"
+       echo "busy bash 프로세스 수: $(pgrep -fc 'while :' || echo 0)"
+load average: 0.89 0.59 0.34
+busy bash 프로세스 수: 22
+--- exit=0 ---
+
+### 2026-08-09 22:36:19
+$ sudo -u agent-admin '/home/agent-admin/agent-app/bin/monitor.sh'; echo "(exit=$?)"
+====== SYSTEM MONITOR RESULT ======
+
+[HEALTH CHECK]
+Checking process 'agent-app-linux-arm[6]4'... [OK] (PID: 1807)
+Checking port 15034... [OK]
+
+[SECURITY CHECK]
+Checking firewall (ufw)... [OK] (enabled)
+
+[RESOURCE MONITORING]
+CPU Usage  : 51.7%
+MEM Usage  : 9.0%
+DISK Used  : 25%
+
+[WARNING] CPU threshold exceeded (51.7% > 20%)
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+(exit=0)
+--- exit=0 ---
+
+### 2026-08-09 22:36:19  [NOTE]
+이번 실행의 CPU Usage 는 실제 부하에 의한 측정값이며,
+임계값 20% 를 넘겨 [WARNING] CPU threshold exceeded 가 출력되어야 한다.
+임계값 주입 없이 기본값 그대로 경고가 발생한 것이 핵심이다.
+
+### 2026-08-09 22:36:19
+$ pkill -f "while :" 2>/dev/null; sleep 4; echo "부하 종료"
+
+--- exit=143 ---
+
+### 2026-08-09 22:36:20
+$ sudo -u agent-admin '/home/agent-admin/agent-app/bin/monitor.sh' | grep -E 'CPU Usage|WARNING|All resources'; echo "(exit=$?)"
+CPU Usage  : 11.5%
+[INFO] All resources within thresholds
+(exit=0)
+--- exit=0 ---
+
+### 2026-08-09 22:36:24
+$ 
+fail=0
+# 부하를 다시 걸고, 기본 임계값에서 CPU 경고가 나오는지 확인
+for i in $(seq 1 10); do setsid timeout 15 bash -c 'while :; do :; done' </dev/null >/dev/null 2>&1 & done
+sleep 3
+out=$(sudo -u agent-admin '/home/agent-admin/agent-app/bin/monitor.sh' 2>&1)
+rc=$?
+echo "$out" | grep -E 'CPU Usage'
+echo "$out" | grep -q 'WARNING. CPU threshold exceeded' || { echo 'NG: 실부하에서 CPU 경고 미발생'; fail=1; }
+[ $rc -eq 0 ] || { echo 'NG: 경고 발생 시 exit != 0'; fail=1; }
+pkill -f 'while :' 2>/dev/null
+[ $fail -eq 0 ] && echo 'PHASE 6c GATE: PASS' || echo 'PHASE 6c GATE: FAIL'
+exit $fail
+CPU Usage  : 52.0%
+--- exit=143 ---
+
+============================================================
+ EVIDENCE : phase6-cron
+ OPENED   : 2026-08-09 22:37:08 KST
+ HOST     : agent-lab    USER: root
+============================================================
+
+### 2026-08-09 22:37:08  [NOTE]
+[pkill 자기매치 — 같은 함정 3회째]
+Phase 6c 의 gate 가 exit=143(SIGTERM) 으로 중단됐다.
+gate 안에서 pkill -f 'while :' 를 실행했는데, 그 gate 자체가
+bash -c "... pkill -f 'while :' ..." 로 돌고 있어 자기 명령줄이 패턴에 매치됐다.
+Phase 4 의 앱 종료, 이번 부하 종료 — 같은 원인으로 세 번 걸렸다.
+
+일반화하면: pkill/pgrep -f 는 '자기 자신을 포함한' 전체 프로세스 목록을 훑는다.
+패턴 문자열이 실행 중인 셸의 명령줄에 남아 있으면 반드시 자기를 잡는다.
+대응은 두 가지다.
+  (1) 패턴에 대괄호를 넣어 문자열과 정규식을 어긋나게 한다: 'whil[e] :'
+  (2) 패턴을 파일(스크립트) 안에 두고 명령줄에는 노출하지 않는다.
+monitor.sh 는 (2)에 해당해 안전하지만, 감시 패턴에 (1)도 함께 적용해 두었다.
+
+### 2026-08-09 22:37:10
+$ pkill -f 'whil[e] :' 2>/dev/null; sleep 2; echo "잔여: $(pgrep -fc 'whil[e] :' 2>/dev/null || echo 0)"
+잔여: 0
+0
+--- exit=0 ---
+
+### 2026-08-09 22:37:14
+$ 
+fail=0
+out=$(sudo -u agent-admin '/home/agent-admin/agent-app/bin/monitor.sh' 2>&1); rc=$?
+echo "$out" | grep -E 'CPU Usage'
+echo "$out" | grep -E 'WARNING. CPU threshold'
+echo "$out" | grep -q 'WARNING. CPU threshold exceeded' || { echo 'NG: 실부하에서 CPU 경고 미발생'; fail=1; }
+[ $rc -eq 0 ] || { echo 'NG: 경고 발생 시 exit != 0'; fail=1; }
+[ $fail -eq 0 ] && echo 'PHASE 6c GATE: PASS' || echo 'PHASE 6c GATE: FAIL'
+exit $fail
+CPU Usage  : 51.3%
+[WARNING] CPU threshold exceeded (51.3% > 20%)
+PHASE 6c GATE: PASS
+--- exit=0 ---
+
+### 2026-08-09 22:37:16
+$ pkill -f 'whil[e] :' 2>/dev/null; sleep 2; echo "정리 완료. 잔여: $(pgrep -fc 'whil[e] :' 2>/dev/null || echo 0)"
+정리 완료. 잔여: 0
+0
+--- exit=0 ---
+
+### 2026-08-09 22:37:17
+$ sudo -u agent-admin '/home/agent-admin/agent-app/bin/monitor.sh' | grep -E 'CPU Usage|All resources'
+CPU Usage  : 1.4%
+[INFO] All resources within thresholds
+--- exit=0 ---
+

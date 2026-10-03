@@ -1,0 +1,95 @@
+============================================================
+ EVIDENCE : phase1-ssh
+ OPENED   : 2026-08-09 22:17:22 KST
+ HOST     : agent-lab    USER: root
+============================================================
+
+### 2026-08-09 22:17:22
+$ sshd -T 2>/dev/null | grep -E "^(port|permitrootlogin) "
+port 22
+permitrootlogin without-password
+--- exit=0 ---
+
+### 2026-08-09 22:17:22
+$ ss -tulnp | grep sshd || echo "(no sshd listener)"
+tcp   LISTEN 0      128          0.0.0.0:22         0.0.0.0:*    users:(("sshd",pid=11,fd=3))
+tcp   LISTEN 0      128             [::]:22            [::]:*    users:(("sshd",pid=11,fd=4))
+--- exit=0 ---
+
+### 2026-08-09 22:17:22
+$ head -5 /etc/ssh/sshd_config | grep -n Include
+
+--- exit=1 ---
+
+### 2026-08-09 22:17:22  [NOTE]
+Ubuntu 는 sshd_config 최상단에서 sshd_config.d/*.conf 를 Include 한다.
+sshd 설정은 '먼저 읽힌 값이 이긴다'는 규칙이므로, 드롭인 파일에 쓴 값이
+아래쪽 기본값보다 우선 적용된다. 원본 sshd_config 를 건드리지 않아
+패키지 업그레이드 시 충돌하지 않는 것이 드롭인 방식의 이점이다.
+
+### 2026-08-09 22:17:22
+$ cat /etc/ssh/sshd_config.d/99-agent.conf
+# b1-1 미션 기본 보안 설정
+# 1) 포트 변경: 22 를 노리는 자동화 스캔의 접속 시도를 걷어낸다.
+#    포트 변경 자체는 '방어'가 아니라 '잡음 제거'다. 진짜 방어는 아래 항목들이다.
+Port 20022
+
+# 2) root 원격 로그인 차단: 공격자가 이미 아는 계정명(root)으로 들어올 길을 막는다.
+#    운영은 일반 계정 로그인 + sudo 로 하며, 이때 조작 주체가 로그에 남는다.
+PermitRootLogin no
+--- exit=0 ---
+
+### 2026-08-09 22:17:22
+$ sshd -t
+
+--- exit=0 ---
+
+### 2026-08-09 22:17:24
+$ pkill -x sshd; sleep 1; /usr/sbin/sshd; sleep 1; echo "sshd restarted"
+sshd restarted
+--- exit=0 ---
+
+### 2026-08-09 22:17:24
+$ sshd -T | grep -E "^(port|permitrootlogin) "
+port 20022
+permitrootlogin no
+--- exit=0 ---
+
+### 2026-08-09 22:17:24
+$ ss -tulnp
+Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                       
+udp   UNCONN 0      0         127.0.0.11:50805      0.0.0.0:*                                 
+tcp   LISTEN 0      4096      127.0.0.11:35327      0.0.0.0:*                                 
+tcp   LISTEN 0      128          0.0.0.0:20022      0.0.0.0:*    users:(("sshd",pid=142,fd=3))
+tcp   LISTEN 0      128             [::]:20022         [::]:*    users:(("sshd",pid=142,fd=4))
+--- exit=0 ---
+
+### 2026-08-09 22:17:24
+$ ss -tuln | grep -E ":22\b" && echo "NG: 22 still open" || echo "OK: port 22 closed"
+OK: port 22 closed
+--- exit=0 ---
+
+### 2026-08-09 22:17:24  [NOTE]
+실무 함정 기록:
+실제 Ubuntu 22.10+ / 24.04 호스트는 ssh.socket 소켓 액티베이션이 기본이라
+sshd_config 의 Port 만 바꾸면 여전히 22 로 리슨한다. systemd 가 소켓을 먼저
+잡고 sshd 를 넘겨주기 때문에 sshd_config 의 Port 가 무시되는 것이다.
+해결은 둘 중 하나:
+  (A) systemctl disable --now ssh.socket && systemctl enable --now ssh.service
+  (B) /etc/systemd/system/ssh.socket.d/override.conf 에
+      [Socket] / ListenStream= / ListenStream=20022  (빈 줄로 기존 값 초기화 필수)
+본 실습 환경은 systemd 를 쓰지 않고 sshd 를 직접 기동하므로 해당 없음.
+비교 자료로 (B) 파일을 config/ssh-socket-override.conf 에 함께 제출한다.
+
+### 2026-08-09 22:17:24
+$ 
+fail=0
+sshd -T | grep -q "^port 20022"          || { echo "NG: port"; fail=1; }
+sshd -T | grep -q "^permitrootlogin no"  || { echo "NG: permitrootlogin"; fail=1; }
+ss -tuln | grep -q ":20022 "             || { echo "NG: not listening on 20022"; fail=1; }
+ss -tuln | grep -qE ":22 "               && { echo "NG: 22 still listening"; fail=1; }
+[ $fail -eq 0 ] && echo "PHASE 1 GATE: PASS" || echo "PHASE 1 GATE: FAIL"
+exit $fail
+PHASE 1 GATE: PASS
+--- exit=0 ---
+

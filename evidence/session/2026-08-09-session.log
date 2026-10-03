@@ -1,0 +1,2237 @@
+
+=========================================================================
+  RUN   : phases/phase0-env.sh
+  AT    : 2026-08-09 22:16:31 KST
+=========================================================================
+>>> evidence file: /evidence/phase0-env.txt
+[NOTE] 실습 환경: Docker 비특권 컨테이너. --privileged 없음, 호스트 cgroup 마운트 없음.
+cap-add 는 ufw/iptables 에 필요한 NET_ADMIN, NET_RAW 두 개뿐.
+systemd 를 설치하지 않고 sshd/cron 을 entrypoint 에서 직접 기동하는 구성.
+--- [0-1] 커널/아키텍처 ---
+Linux agent-lab 6.14.0-1015-nvidia #15-Ubuntu SMP PREEMPT_DYNAMIC Tue Nov 25 18:02:16 UTC 2025 aarch64 aarch64 aarch64 GNU/Linux
+--- [0-2] 배포판 ---
+PRETTY_NAME="Ubuntu 24.04.4 LTS"
+NAME="Ubuntu"
+VERSION_ID="24.04"
+--- [0-3] 시간대 (기록 시간축 일치 확인) ---
+2026-08-09 22:16:31 KST
+--- [0-4] PID 1 이 systemd 가 아님을 확인 ---
+      1 docker-init     /sbin/docker-init -- /usr/local/sbin/entrypoint.sh
+--- [0-5] 상주 데몬 (sshd / cron) ---
+     11 sshd
+     19 cron
+--- [0-6] 필수 도구 존재 확인 ---
+ufw        /usr/sbin/ufw
+cron       /usr/sbin/cron
+sshd       /usr/sbin/sshd
+setfacl    /usr/bin/setfacl
+getfacl    /usr/bin/getfacl
+ss         /usr/bin/ss
+pgrep      /usr/bin/pgrep
+df         /usr/bin/df
+awk        /usr/bin/awk
+gzip       /usr/bin/gzip
+find       /usr/bin/find
+script     /usr/bin/script
+crontab    /usr/bin/crontab
+--- [0-7] 제공 앱 바이너리 ---
+-rwxr-xr-x 1 ubuntu ubuntu 7537848 May 18 17:06 /opt/agent-app-linux-arm64
+--- [0-8] 증거 디렉토리 쓰기 가능 여부 ---
+writable: OK
+
+=== Phase 0 gate 결과 ===
+PHASE 0 GATE: PASS
+----- exit=0 -----
+
+=========================================================================
+  RUN   : phases/phase1-ssh.sh
+  AT    : 2026-08-09 22:17:22 KST
+=========================================================================
+>>> evidence file: /evidence/phase1-ssh.txt
+--- [1-0] 변경 전 상태 ---
+port 22
+permitrootlogin without-password
+tcp   LISTEN 0      128          0.0.0.0:22         0.0.0.0:*    users:(("sshd",pid=11,fd=3))
+tcp   LISTEN 0      128             [::]:22            [::]:*    users:(("sshd",pid=11,fd=4))
+--- [1-1] sshd 드롭인 설정 작성 ---
+
+[NOTE] Ubuntu 는 sshd_config 최상단에서 sshd_config.d/*.conf 를 Include 한다.
+sshd 설정은 '먼저 읽힌 값이 이긴다'는 규칙이므로, 드롭인 파일에 쓴 값이
+아래쪽 기본값보다 우선 적용된다. 원본 sshd_config 를 건드리지 않아
+패키지 업그레이드 시 충돌하지 않는 것이 드롭인 방식의 이점이다.
+# b1-1 미션 기본 보안 설정
+# 1) 포트 변경: 22 를 노리는 자동화 스캔의 접속 시도를 걷어낸다.
+#    포트 변경 자체는 '방어'가 아니라 '잡음 제거'다. 진짜 방어는 아래 항목들이다.
+Port 20022
+
+# 2) root 원격 로그인 차단: 공격자가 이미 아는 계정명(root)으로 들어올 길을 막는다.
+#    운영은 일반 계정 로그인 + sudo 로 하며, 이때 조작 주체가 로그에 남는다.
+PermitRootLogin no
+--- [1-2] 설정 문법 검증 후 sshd 재기동 ---
+
+sshd restarted
+--- [1-3] 적용 결과: 유효 설정 ---
+port 20022
+permitrootlogin no
+--- [1-4] 적용 결과: 리슨 포트 ---
+Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                       
+udp   UNCONN 0      0         127.0.0.11:50805      0.0.0.0:*                                 
+tcp   LISTEN 0      4096      127.0.0.11:35327      0.0.0.0:*                                 
+tcp   LISTEN 0      128          0.0.0.0:20022      0.0.0.0:*    users:(("sshd",pid=142,fd=3))
+tcp   LISTEN 0      128             [::]:20022         [::]:*    users:(("sshd",pid=142,fd=4))
+--- [1-5] 22번 포트가 더 이상 열려 있지 않은지 ---
+OK: port 22 closed
+[NOTE] 실무 함정 기록:
+실제 Ubuntu 22.10+ / 24.04 호스트는 ssh.socket 소켓 액티베이션이 기본이라
+sshd_config 의 Port 만 바꾸면 여전히 22 로 리슨한다. systemd 가 소켓을 먼저
+잡고 sshd 를 넘겨주기 때문에 sshd_config 의 Port 가 무시되는 것이다.
+해결은 둘 중 하나:
+  (A) systemctl disable --now ssh.socket && systemctl enable --now ssh.service
+  (B) /etc/systemd/system/ssh.socket.d/override.conf 에
+      [Socket] / ListenStream= / ListenStream=20022  (빈 줄로 기존 값 초기화 필수)
+본 실습 환경은 systemd 를 쓰지 않고 sshd 를 직접 기동하므로 해당 없음.
+비교 자료로 (B) 파일을 config/ssh-socket-override.conf 에 함께 제출한다.
+
+=== Phase 1 gate 결과 ===
+PHASE 1 GATE: PASS
+----- exit=0 -----
+
+=========================================================================
+  RUN   : phases/phase2-ufw.sh
+  AT    : 2026-08-09 22:18:07 KST
+=========================================================================
+>>> evidence file: /evidence/phase2-ufw.txt
+--- [2-0] 변경 전 상태 ---
+Status: inactive
+[NOTE] 방화벽은 UFW 를 선택했다. 본 환경에 firewalld 는 없고,
+Ubuntu 계열 표준 도구가 UFW 이기 때문이다.
+규칙 적용 순서가 중요하다: allow 20022 를 '먼저' 넣고 enable 한다.
+반대로 하면 원격 세션이 끊겨 스스로 잠기는데(lockout), 실습 환경이라도
+이 순서를 습관으로 들여야 실제 서버에서 사고가 나지 않는다.
+--- [2-1] 기본 정책: 들어오는 것은 막고 나가는 것은 허용 ---
+Default incoming policy changed to 'deny'
+(be sure to update your rules accordingly)
+Default outgoing policy changed to 'allow'
+(be sure to update your rules accordingly)
+--- [2-2] 필요한 포트만 허용 (enable 이전에 먼저 등록) ---
+Rules updated
+Rules updated (v6)
+Rules updated
+Rules updated (v6)
+--- [2-3] 방화벽 활성화 ---
+Firewall is active and enabled on system startup
+--- [2-4] 적용 결과 ---
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), deny (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+20022/tcp                  ALLOW IN    Anywhere                   # SSH
+15034/tcp                  ALLOW IN    Anywhere                   # AGENT APP
+20022/tcp (v6)             ALLOW IN    Anywhere (v6)              # SSH
+15034/tcp (v6)             ALLOW IN    Anywhere (v6)              # AGENT APP
+Status: active
+
+     To                         Action      From
+     --                         ------      ----
+[ 1] 20022/tcp                  ALLOW IN    Anywhere                   # SSH
+[ 2] 15034/tcp                  ALLOW IN    Anywhere                   # AGENT APP
+[ 3] 20022/tcp (v6)             ALLOW IN    Anywhere (v6)              # SSH
+[ 4] 15034/tcp (v6)             ALLOW IN    Anywhere (v6)              # AGENT APP
+--- [2-5] 설정 파일상의 활성 상태 (monitor.sh 가 참조할 값) ---
+ENABLED=yes
+[NOTE] monitor.sh 는 비특권 계정(agent-admin)으로 cron 실행된다.
+그런데 'ufw status' 는 root 전용이라 일반 계정에서는 실패한다.
+따라서 방화벽 점검은 644 로 누구나 읽을 수 있는 /etc/ufw/ufw.conf 의
+ENABLED 값을 확인하는 방식으로 구현한다. sudo 권한을 추가로 주지 않고도
+점검이 가능하다는 점이 최소 권한 원칙에 부합한다.
+--- [2-6] 비특권 계정에서 ufw status 가 실패함을 실증 ---
+ERROR: You need to be root to run this script
+(exit=0)
+
+=== Phase 2 gate 결과 ===
+NG: 허용 규칙에 20022/15034 외 항목 존재 (allow=0, expected=4)
+PHASE 2 GATE: FAIL
+----- exit=1 -----
+
+=========================================================================
+  RUN   : phases/phase2b-ufw-gate.sh
+  AT    : 2026-08-09 22:19:34 KST
+=========================================================================
+>>> evidence file: /evidence/phase2-ufw.txt
+[NOTE] [게이트 실패 기록 — 원인 및 수정]
+증상 : Phase 2 gate 가 '허용 규칙에 20022/15034 외 항목 존재 (allow=0)' 로 FAIL.
+       그러나 ufw status verbose 출력상 규칙은 정확히 4행(20022/15034 의 v4/v6)뿐이었다.
+원인 : 방화벽 설정이 아니라 게이트 검사식의 버그.
+       'ufw status'(평문) 는 Action 컬럼을 'ALLOW' 로 출력하고,
+       'ALLOW IN' 은 'ufw status verbose' 에서만 나온다.
+       평문 출력에 'ALLOW IN' 을 grep 했으므로 매치 0 → allow=0.
+확인 : ufw status | cat -A 로 실제 바이트를 확인해 'ALLOW' 뒤가 공백임을 검증.
+수정 : 규칙 카운트를 'ufw status verbose' 기준으로 변경.
+교훈 : 같은 명령이라도 옵션에 따라 출력 스키마가 달라진다. 스크립트에서 CLI 출력을
+       파싱할 때는 '무엇을 파싱하는지'를 옵션까지 포함해 고정해야 한다.
+       이 실패는 monitor.sh 에서 top/free 대신 /proc 을 직접 읽기로 한 판단과 같은 이유다.
+--- [2-7] 출력 스키마 차이 실증 ---
+[ufw status]        : 20022/tcp                  ALLOW       Anywhere                   # SSH
+[ufw status verbose]: 20022/tcp                  ALLOW IN    Anywhere                   # SSH
+
+=== Phase 2 gate 재검증 (수정판) ===
+허용 규칙 총 4행 중 20022/15034 에 해당: 4행
+PHASE 2 GATE: PASS
+----- exit=0 -----
+
+=========================================================================
+  RUN   : phases/phase3-account-acl.sh
+  AT    : 2026-08-09 22:21:38 KST
+=========================================================================
+>>> evidence file: /evidence/phase3-account-acl.txt
+--- [3-1] 그룹 생성 ---
+[NOTE] 그룹을 둘로 나누는 이유:
+  agent-common (admin, dev, test) — '공유' 영역. 세 사람이 파일을 주고받는 곳.
+  agent-core   (admin, dev)       — '보안' 영역. 자격증명과 운영 로그가 있는 곳.
+QA 담당(agent-test)은 업무상 업로드 파일은 다뤄야 하지만 API 키와 운영 로그를
+볼 이유가 없다. 한 그룹으로 뭉뜽그리면 '공유하려면 비밀도 함께 열어야 하는'
+구조가 되므로, 공유 축과 기밀 축을 별도 그룹으로 분리한다.
+agent-common:x:1001:
+agent-core:x:1002:
+--- [3-2] 계정 생성 ---
+created
+--- [3-3] 그룹 배정 ---
+assigned
+uid=1001(agent-admin) gid=1003(agent-admin) groups=1003(agent-admin),1001(agent-common),1002(agent-core)
+uid=1002(agent-dev) gid=1004(agent-dev) groups=1004(agent-dev),1001(agent-common),1002(agent-core)
+uid=1003(agent-test) gid=1005(agent-test) groups=1005(agent-test),1001(agent-common)
+--- [3-4] 디렉토리 생성 ---
+created
+--- [3-5] 소유권 / 모드 설정 ---
+[NOTE] setgid 비트(2xxx)를 거는 이유:
+디렉토리에 setgid 를 걸면 그 안에서 '누가' 파일을 만들든 파일의 그룹이
+디렉토리의 그룹으로 자동 고정된다. 이게 없으면 agent-dev 가 만든 파일은
+agent-dev 그룹이 되어 agent-admin 이 못 읽는 사고가 난다. 협업 디렉토리에서
+권한이 시간이 지나며 무너지는 것을 구조적으로 막는 장치다.
+applied
+--- [3-6] ACL 설정 ---
+[NOTE] ACL 로 해결하는 것 두 가지:
+(1) 통행권 분리 — agent-dev 는 monitor.sh 를 $AGENT_HOME/bin 에 써야 하는데,
+    그 경로가 agent-admin 의 홈 아래에 있다. /home/agent-admin 을 755 로 열면
+    dev/test 가 admin 홈 전체를 들여다볼 수 있게 된다.
+    그래서 'u:agent-dev:x' 만 준다. 목록은 못 보되(r 없음) 하위 경로로
+    지나갈 수는 있는(x) 상태 — 최소 권한의 교과서적 형태다.
+(2) 신규 파일 상속 — default ACL(-d)을 걸면 앞으로 만들어질 파일에도
+    그룹 권한이 자동 적용된다. umask 설정에 의존하지 않게 된다.
+acl applied
+--- [3-7] 최종 권한 상태 ---
+drwxr-x---+ 3 agent-admin agent-admin  4096 Aug  9 22:21 /home/agent-admin
+drwxr-s---  5 agent-admin agent-core   4096 Aug  9 22:21 /home/agent-admin/agent-app
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:21 /home/agent-admin/agent-app/api_keys
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:21 /home/agent-admin/agent-app/bin
+drwxrws---+ 2 agent-admin agent-common 4096 Aug  9 22:21 /home/agent-admin/agent-app/upload_files
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:21 /var/log/agent-app
+  [getfacl] /home/agent-admin
+# file: /home/agent-admin
+# owner: agent-admin
+# group: agent-admin
+user::rwx
+user:agent-dev:--x
+group::r-x
+mask::r-x
+other::---
+  [getfacl] /home/agent-admin/agent-app
+# file: /home/agent-admin/agent-app
+# owner: agent-admin
+# group: agent-core
+# flags: -s-
+user::rwx
+group::r-x
+other::---
+  [getfacl] /home/agent-admin/agent-app/bin
+# file: /home/agent-admin/agent-app/bin
+# owner: agent-admin
+# group: agent-core
+# flags: -s-
+user::rwx
+user:agent-dev:rwx
+group::r-x
+mask::rwx
+other::---
+default:user::rwx
+default:user:agent-dev:rwx
+default:group::r-x
+default:group:agent-core:r-x
+default:mask::rwx
+default:other::---
+  [getfacl] /home/agent-admin/agent-app/upload_files
+# file: /home/agent-admin/agent-app/upload_files
+# owner: agent-admin
+# group: agent-common
+# flags: -s-
+user::rwx
+group::rwx
+group:agent-common:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-common:rwx
+default:mask::rwx
+default:other::---
+  [getfacl] /home/agent-admin/agent-app/api_keys
+# file: /home/agent-admin/agent-app/api_keys
+# owner: agent-admin
+# group: agent-core
+# flags: -s-
+user::rwx
+group::rwx
+group:agent-core:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-core:rwx
+default:mask::rwx
+default:other::---
+  [getfacl] /var/log/agent-app
+# file: /var/log/agent-app
+# owner: agent-admin
+# group: agent-core
+# flags: -s-
+user::rwx
+group::rwx
+group:agent-core:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-core:rwx
+default:mask::rwx
+default:other::---
+
+==============================================================
+ [3-8] 포지티브 테스트 — 되어야 하는 것은 되는가
+==============================================================
+OK: dev  가 upload_files 에 파일 생성
+touch: cannot touch '/home/agent-admin/agent-app/upload_files/from-test.txt': Permission denied
+total 0
+-rw-rw----+ 1 agent-dev agent-common 0 Aug  9 22:21 from-dev.txt
+[NOTE] 위 ls 결과에서 두 파일의 그룹이 모두 agent-common 인지 확인할 것.
+생성자가 dev/test 로 다른데 그룹이 하나로 고정되었다면 setgid 가 동작한 것이다.
+OK: dev 가 bin 에 파일 생성 (ACL u:agent-dev:rwx)
+from-dev.sh
+OK: dev 가 bin 목록 조회
+OK: admin 이 로그 디렉토리에 기록
+OK: dev 가 로그 디렉토리에 기록
+
+==============================================================
+ [3-9] 네거티브 테스트 — 막혀야 하는 것은 막히는가
+==============================================================
+[NOTE] 정상 케이스만 확인하는 것은 검증이 아니라 시연이다.
+권한 설계의 진짜 증명은 '막혀야 할 것이 실제로 막히는가'에 있다.
+ls: cannot access '/home/agent-admin/agent-app/api_keys': Permission denied
+[PASS (차단 확인됨)]
+ls: cannot open directory '/var/log/agent-app': Permission denied
+[PASS (차단 확인됨)]
+touch: cannot touch '/var/log/agent-app/should-fail.txt': Permission denied
+[PASS (차단 확인됨)]
+ls: cannot access '/home/agent-admin/agent-app/bin': Permission denied
+[PASS (차단 확인됨)]
+  --- ACL 통행권의 핵심 실증: dev 는 admin 홈을 '볼 수는 없지만 지날 수는 있다' ---
+ls: cannot open directory '/home/agent-admin': Permission denied
+[PASS (차단 확인됨)]
+OK: 목록은 못 봐도 하위 경로 통행은 가능 (u:agent-dev:x 의 효과)
+
+=== Phase 3 gate 결과 ===
+PHASE 3 GATE: PASS
+----- exit=0 -----
+
+=========================================================================
+  RUN   : phases/phase3b-acl-fix.sh
+  AT    : 2026-08-09 22:22:59 KST
+=========================================================================
+>>> evidence file: /evidence/phase3-account-acl.txt
+[NOTE] [결함 발견 및 수정 — 경로 통행권]
+증상 : agent-test 가 upload_files 에 파일 생성 실패 (Permission denied).
+       요구사항은 'upload_files: group=agent-common, R/W 가능' 이고
+       agent-test 는 agent-common 소속이므로 되어야 정상이다.
+원인 : upload_files 자체의 권한(2770 agent-admin:agent-common)은 옳았다.
+       문제는 '목적지'가 아니라 '가는 길'이었다.
+       upload_files 의 경로는 /home/agent-admin/agent-app/upload_files 인데
+         - /home/agent-admin  : 750 + ACL u:agent-dev:x  → test 통행 불가
+         - $AGENT_HOME       : 2750 agent-admin:agent-core → test 는 core 아님, 통행 불가
+       리눅스는 최종 디렉토리 권한만 보는 게 아니라 경로상의 '모든' 디렉토리에
+       실행(x) 권한을 요구한다. 중간 한 곳만 막혀도 도달할 수 없다.
+수정 : /home/agent-admin 과 $AGENT_HOME 에 g:agent-common:x 를 부여한다.
+       읽기(r)는 주지 않는다 → 목록은 볼 수 없고 통과만 가능하다.
+       'x without r' = 길을 알면 지나갈 수 있지만 둘러볼 수는 없다.
+       이것이 공유 디렉토리를 보안 디렉토리 하위에 두면서도 최소 권한을
+       유지하는 방법이다.
+게이트 : 이 결함을 Phase 3 gate 가 잡지 못했다. 네거티브 테스트만 넣고
+       'agent-test 의 정당한 쓰기'라는 포지티브 케이스를 빠뜨렸기 때문이다.
+       gate 에 해당 검사를 추가한다.
+--- [3b-1] 통행권 부여 (r 없이 x 만) ---
+traverse ACL applied
+user::rwx
+user:agent-dev:--x
+group::r-x
+group:agent-common:--x
+mask::r-x
+other::---
+user::rwx
+group::r-x
+group:agent-common:--x
+mask::r-x
+other::---
+--- [3b-2] 재검증: agent-test 가 upload_files 에 쓸 수 있는가 ---
+OK: test 가 upload_files 에 파일 생성
+total 0
+-rw-rw----+ 1 agent-dev  agent-common 0 Aug  9 22:21 from-dev.txt
+-rw-rw----+ 1 agent-test agent-common 0 Aug  9 22:22 from-test.txt
+[NOTE] 두 파일의 생성자는 agent-dev / agent-test 로 다르지만 그룹은 모두
+agent-common 으로 고정되어 있어야 한다. setgid 가 동작한 증거다.
+--- [3b-3] 통행권을 준 뒤에도 기밀 영역은 여전히 막혀 있는가 ---
+[NOTE] 권한을 풀 때 가장 위험한 순간이다. 통행권을 주면서 실수로
+기밀 영역까지 열리지 않았는지 반드시 재확인해야 한다.
+ls: cannot open directory '/home/agent-admin/agent-app/api_keys': Permission denied
+[PASS (차단 확인됨)]
+ls: cannot open directory '/var/log/agent-app': Permission denied
+[PASS (차단 확인됨)]
+ls: cannot open directory '/home/agent-admin/agent-app/bin': Permission denied
+[PASS (차단 확인됨)]
+ls: cannot open directory '/home/agent-admin/agent-app': Permission denied
+[PASS (차단 확인됨)]
+ls: cannot open directory '/home/agent-admin': Permission denied
+[PASS (차단 확인됨)]
+[NOTE] 위 결과: agent-test 는 $AGENT_HOME 의 목록조차 볼 수 없다(x만 있고 r 없음).
+그럼에도 경로를 정확히 지정한 upload_files 에는 도달해 쓸 수 있다.
+'통과는 되지만 둘러볼 수는 없는' 상태가 의도대로 구현되었다.
+--- [3b-4] 테스트 잔여 파일 정리 ---
+/home/agent-admin/agent-app/bin:
+total 12
+drwxrws---+ 2 agent-admin agent-core 4096 Aug  9 22:22 .
+drwxr-s---+ 5 agent-admin agent-core 4096 Aug  9 22:21 ..
+
+/var/log/agent-app:
+total 8
+drwxrws---+ 2 agent-admin agent-core 4096 Aug  9 22:22 .
+drwxr-xr-x  1 root        root       4096 Aug  9 22:21 ..
+
+=== Phase 3 gate 재검증 (포지티브 케이스 보강판) ===
+PHASE 3 GATE: PASS
+----- exit=0 -----
+
+=========================================================================
+  RUN   : phases/phase4-app.sh
+  AT    : 2026-08-09 22:24:10 KST
+=========================================================================
+>>> evidence file: /evidence/phase4-app.txt
+--- [4-1] 환경 변수 정의 (단일 원본) ---
+[NOTE] 환경 변수를 두 곳에서 쓰되 정의는 한 곳에만 둔다.
+  /etc/agent-app.env       — 값의 유일한 원본. KEY=VALUE 평문.
+  /etc/profile.d/agent-app.sh — 로그인 셸용. 위 파일을 set -a 로 읽어 export.
+정의를 두 번 쓰면 반드시 어긋난다. 원본을 하나로 두고 소비자를 나누는 이유다.
+
+특히 중요한 것은 cron 이다. cron 은 /etc/profile.d 를 읽지 않고
+PATH 와 HOME 정도만 있는 최소 환경에서 작업을 실행한다. 따라서 monitor.sh 는
+로그인 셸 환경에 기대지 말고 /etc/agent-app.env 를 스스로 source 해야 한다.
+'내 터미널에서는 되는데 cron 에서만 안 되는' 문제의 대부분이 여기서 나온다.
+# b1-1 에이전트 앱 실행 환경 — 값의 단일 원본
+# 로그인 셸(profile.d)과 cron 실행 스크립트(monitor.sh)가 함께 참조한다.
+AGENT_HOME=/home/agent-admin/agent-app
+AGENT_PORT=15034
+AGENT_UPLOAD_DIR=/home/agent-admin/agent-app/upload_files
+AGENT_KEY_PATH=/home/agent-admin/agent-app/api_keys/t_secret.key
+AGENT_LOG_DIR=/var/log/agent-app
+# 로그인 셸에 에이전트 앱 환경 변수를 주입한다.
+# 값 자체는 /etc/agent-app.env 에만 존재한다(단일 원본).
+# set -a : 이 구간에서 대입되는 변수를 자동으로 export 한다.
+if [ -r /etc/agent-app.env ]; then
+    set -a
+    . /etc/agent-app.env
+    set +a
+fi
+--- [4-2] 로그인 셸에서 환경 변수가 실제로 잡히는지 ---
+AGENT_HOME=/home/agent-admin/agent-app
+AGENT_KEY_PATH=/home/agent-admin/agent-app/api_keys/t_secret.key
+AGENT_LOG_DIR=/var/log/agent-app
+AGENT_PORT=15034
+AGENT_UPLOAD_DIR=/home/agent-admin/agent-app/upload_files
+--- [4-3] 앱 바이너리 배치 ---
+-rwxr-x--- 1 agent-admin agent-core 7537848 Aug  9 22:24 /home/agent-admin/agent-app/agent-app-linux-arm64
+--- [4-4] API 키 파일 생성 ---
+[NOTE] 키 파일 내용의 개행 처리에 주의한다. echo 는 끝에 개행을 붙이고
+printf '%s' 는 붙이지 않는다. 앱이 파일 내용을 문자열 비교한다면 이 한 바이트
+차이로 검증이 실패할 수 있다. 우선 echo(개행 포함)로 생성하고,
+Boot [3/5] 가 실패하면 printf 방식으로 재시도한다.
+-rw-r-----+ 1 agent-admin agent-core 19 Aug  9 22:24 /home/agent-admin/agent-app/api_keys/t_secret.key
+--- 내용(개행 가시화) ---
+agent_api_key_test$
+--- [4-5] 기존 인스턴스 정리 (Boot [4/5] 는 포트가 비어 있어야 통과) ---
+
+--- [4-6] 앱 기동 (agent-admin 으로 실행, root 금지) ---
+launched pid=1004
+--- [4-7] Boot Sequence 출력 ---
+>>> Starting Agent Boot Sequence...
+[1/5] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=1001)
+[2/5] Verifying Environment Variables     [FAIL]
+   >>> Key Path Mismatch. Expected: /home/agent-admin/agent-app/api_keys
+[3/5] Checking Required Files             [FAIL]
+   >>> Skipped due to previous critical failure.
+[4/5] Checking Port Availability          [FAIL]
+   >>> Skipped due to previous critical failure.
+[5/5] Verifying Log Permission            [FAIL]
+   >>> Skipped due to previous critical failure.
+--------------------------------------------------
+System Boot Failed. Process Terminated.
+--- [4-8] 실행 사용자 / 프로세스명 확인 ---
+[NOTE] 미션 예시는 프로세스명을 agent_app.py 로 적고 있으나, 제공된 앱은
+PyInstaller 로 패키징된 단일 실행 바이너리다. 따라서 실제 프로세스명은
+파이썬 스크립트명이 아니라 바이너리명으로 뜬다. monitor.sh 의 pgrep 패턴은
+추측이 아니라 아래 실측값에 맞춰 정한다.
+
+--- [4-9] 포트 LISTEN 확인 ---
+Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                       
+udp   UNCONN 0      0         127.0.0.11:50805      0.0.0.0:*                                 
+tcp   LISTEN 0      4096      127.0.0.11:35327      0.0.0.0:*                                 
+tcp   LISTEN 0      128          0.0.0.0:20022      0.0.0.0:*    users:(("sshd",pid=142,fd=3))
+tcp   LISTEN 0      128             [::]:20022         [::]:*    users:(("sshd",pid=142,fd=4))
+
+=== Phase 4 gate 결과 ===
+NG: boot step 2 not [OK]
+NG: boot step 3 not [OK]
+NG: boot step 4 not [OK]
+NG: boot step 5 not [OK]
+NG: Agent READY missing
+NG: not listening on 15034
+NG: app running as root (must be agent-admin)
+PHASE 4 GATE: FAIL
+----- exit=1 -----
+
+=========================================================================
+  RUN   : phases/phase4-app.sh
+  AT    : 2026-08-09 22:27:23 KST
+=========================================================================
+>>> evidence file: /evidence/phase4-app.txt
+--- [4-1] 앱의 실제 요구사항 확인 (실측으로 확정) ---
+[NOTE] [문서와 앱의 불일치 — 실측으로 확정한 내용]
+미션 문서의 표기를 그대로 적용했더니 Boot 가 실패했다. 앱이 출력한 오류
+메시지를 근거로 두 가지를 수정했다.
+
+(1) AGENT_KEY_PATH 는 '파일'이 아니라 '디렉토리'다.
+    문서: AGENT_KEY_PATH = $AGENT_HOME/api_keys/t_secret.key
+    실제: [2/5] Verifying Environment Variables [FAIL]
+          >>> Key Path Mismatch. Expected: /home/agent-admin/agent-app/api_keys
+    → AGENT_KEY_PATH 를 api_keys 디렉토리로 지정하니 [2/5] 통과.
+
+(2) 앱이 찾는 키 파일명은 t_secret.key 가 아니라 secret.key 다.
+    실제: [3/5] Checking Required Files [FAIL]
+          >>> Missing File: secret.key
+          >>>    (Expected location: .../api_keys/secret.key)
+    → secret.key 생성 후 [3/5] 통과.
+       ... Verified 'secret.key' with correct key string.
+
+대응 : 문서 요구사항(t_secret.key)과 앱 요구사항(secret.key)을 모두 만족시키기
+       위해 두 파일을 같은 내용으로 생성한다. 어느 쪽 기준으로 채점하더라도
+       충족되며, 불일치 사실 자체를 기록에 남긴다.
+교훈 : 사양서와 실제 구현이 어긋날 때 판단 근거는 '실행 결과'다.
+       앱이 친절하게 Expected 값을 출력해 주었으므로 추측할 필요가 없었다.
+--- [4-2] 환경 변수 정의 (단일 원본) ---
+[NOTE] 환경 변수를 두 곳에서 쓰되 정의는 한 곳에만 둔다.
+  /etc/agent-app.env          — 값의 유일한 원본. KEY=VALUE 평문.
+  /etc/profile.d/agent-app.sh — 로그인 셸용. 위 파일을 set -a 로 읽어 export.
+정의를 두 번 쓰면 반드시 어긋난다.
+
+특히 중요한 것은 cron 이다. cron 은 /etc/profile.d 를 읽지 않고 PATH 와 HOME
+정도만 있는 최소 환경에서 작업을 실행한다. 따라서 monitor.sh 는 로그인 셸
+환경에 기대지 말고 /etc/agent-app.env 를 스스로 source 해야 한다.
+'내 터미널에서는 되는데 cron 에서만 안 되는' 문제의 대부분이 여기서 나온다.
+# b1-1 에이전트 앱 실행 환경 — 값의 단일 원본
+# 로그인 셸(profile.d)과 cron 실행 스크립트(monitor.sh)가 함께 참조한다.
+AGENT_HOME=/home/agent-admin/agent-app
+AGENT_PORT=15034
+AGENT_UPLOAD_DIR=/home/agent-admin/agent-app/upload_files
+
+# 주의: 앱은 이 값을 '디렉토리'로 기대한다(파일 경로가 아니다).
+#       파일 경로를 넣으면 Boot [2/5] 가 Key Path Mismatch 로 실패한다.
+AGENT_KEY_PATH=/home/agent-admin/agent-app/api_keys
+
+AGENT_LOG_DIR=/var/log/agent-app
+
+# 관제 스크립트가 감시할 프로세스 패턴.
+# 대괄호는 pgrep 이 스크립트 자신을 매치하는 것을 막기 위한 것이다.
+AGENT_APP_PATTERN=agent-app-linux-arm[6]4
+# 로그인 셸에 에이전트 앱 환경 변수를 주입한다.
+# 값 자체는 /etc/agent-app.env 에만 존재한다(단일 원본).
+# set -a : 이 구간에서 대입되는 변수를 자동으로 export 한다.
+if [ -r /etc/agent-app.env ]; then
+    set -a
+    . /etc/agent-app.env
+    set +a
+fi
+--- [4-3] 로그인 셸에서 환경 변수가 실제로 잡히는지 ---
+AGENT_APP_PATTERN=agent-app-linux-arm[6]4
+AGENT_HOME=/home/agent-admin/agent-app
+AGENT_KEY_PATH=/home/agent-admin/agent-app/api_keys
+AGENT_LOG_DIR=/var/log/agent-app
+AGENT_PORT=15034
+AGENT_UPLOAD_DIR=/home/agent-admin/agent-app/upload_files
+--- [4-4] 앱 바이너리 배치 ---
+-rwxr-x--- 1 agent-admin agent-core 7537848 Aug  9 22:27 /home/agent-admin/agent-app/agent-app-linux-arm64
+--- [4-5] API 키 파일 생성 (문서 요구 + 앱 요구 양쪽 충족) ---
+total 12
+-rw-r-----+ 1 agent-admin agent-core 19 Aug  9 22:27 $f
+-rw-r-----+ 1 agent-admin agent-core 19 Aug  9 22:25 secret.key
+-rw-r-----+ 1 agent-admin agent-core 19 Aug  9 22:24 t_secret.key
+--- 내용 (개행 가시화: $ 가 줄끝 개행) ---
+agent_api_key_test$
+[NOTE] 키 파일 내용은 echo 로 생성했으므로 끝에 개행(LF)이 붙는다.
+앱은 이 상태를 'correct key string' 으로 인정했다([3/5] 통과).
+만약 앱이 개행 없는 정확 일치를 요구했다면 printf '%s' 로 재생성해야 한다.
+--- [4-6] 기존 인스턴스 정리 (Boot [4/5] 는 포트가 비어 있어야 통과) ---
+[NOTE] [함정 기록] pkill -f 는 자기 자신을 죽일 수 있다.
+프로브 과정에서 bash -c "... pkill -f agent-app-linux-arm64 ..." 를 실행했더니
+셸 자신의 명령줄에도 그 문자열이 들어 있어 pkill 이 부모 셸을 죽였다
+(종료코드 143 = SIGTERM). 해결책은 패턴에 대괄호를 넣는 것이다.
+  agent-app-linux-arm[6]4
+이 정규식은 'agent-app-linux-arm64' 에 매치되지만, 명령줄에 남는 문자열
+'agent-app-linux-arm[6]4' 자체에는 매치되지 않는다.
+같은 이유로 monitor.sh 의 감시 패턴도 이 형태로 고정한다.
+OK: port 15034 free
+--- [4-7] 앱 기동 (agent-admin 으로 실행, root 금지) ---
+launched pid=1156
+--- [4-8] Boot Sequence 출력 ---
+>>> Starting Agent Boot Sequence...
+[1/5] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=1001)
+[2/5] Verifying Environment Variables     [OK]
+   ... All required Envs correct
+[3/5] Checking Required Files             [OK]
+   ... Verified 'secret.key' with correct key string.
+[4/5] Checking Port Availability          [OK]
+   ... Port 15034 is available.
+[5/5] Verifying Log Permission            [OK]
+   ... Log directory is writable: /var/log/agent-app
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+--- [4-9] 기동 이후 앱 동작 로그 (앱의 성격 확인) ---
+2026-08-09 22:27:24,360 [INFO] === Agent Worker Started ===
+2026-08-09 22:27:24,360 [INFO]    > Cycle: 0 -> 256MB/Lv10 -> 0
+2026-08-09 22:27:24,360 [INFO] --- Step Info: Mode=UP, CPU Lv=1, Mem=0MB ---
+2026-08-09 22:27:24,368 [INFO] [Memory] Increasing... (+25 MB) Total: 25 MB
+2026-08-09 22:27:24,369 [INFO] [CPU] Occupy core for 1s (Level 1)
+2026-08-09 22:27:26,369 [INFO] --- Step Info: Mode=UP, CPU Lv=2, Mem=25MB ---
+2026-08-09 22:27:26,378 [INFO] [Memory] Increasing... (+25 MB) Total: 50 MB
+[NOTE] 이 앱은 단순 대기 서버가 아니라 CPU 와 메모리를 주기적으로 끌어올리는
+부하 생성기다(Cycle: 0 -> 256MB/Lv10 -> 0). monitor.sh 의 임계값 경고
+(CPU>20%, MEM>10%)가 실제로 발동하도록 설계된 것으로 보인다.
+따라서 경고 로직은 인위적 조작 없이 자연스럽게 검증할 수 있다.
+--- [4-10] 실행 사용자 / 실제 프로세스명 확인 ---
+[NOTE] 미션 예시는 프로세스명을 agent_app.py 로 적고 있으나, 제공된 앱은
+PyInstaller 로 패키징된 단일 실행 바이너리다. 실제 프로세스명은 아래 실측값이며
+monitor.sh 의 감시 패턴은 추측이 아니라 이 값에 맞춘다.
+   1156 agent-a+ agent-app-linux ./agent-app-linux-arm64
+   1157 agent-a+ agent-app-linux ./agent-app-linux-arm64
+--- [4-11] 포트 LISTEN 확인 ---
+Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                       
+udp   UNCONN 0      0         127.0.0.11:50805      0.0.0.0:*                                 
+tcp   LISTEN 0      4096      127.0.0.11:35327      0.0.0.0:*                                 
+tcp   LISTEN 0      1            0.0.0.0:15034      0.0.0.0:*                                 
+tcp   LISTEN 0      128          0.0.0.0:20022      0.0.0.0:*    users:(("sshd",pid=142,fd=3))
+tcp   LISTEN 0      128             [::]:20022         [::]:*    users:(("sshd",pid=142,fd=4))
+
+=== Phase 4 gate 결과 ===
+PHASE 4 GATE: PASS
+----- exit=0 -----
+
+=========================================================================
+  RUN   : phases/phase5-monitor.sh
+  AT    : 2026-08-09 22:30:05 KST
+=========================================================================
+>>> evidence file: /evidence/phase5-monitor.txt
+--- [5-1] agent-dev 계정으로 monitor.sh 배치 ---
+[NOTE] monitor.sh 는 agent-dev 가 '직접' 작성한다.
+root 로 만들고 소유권만 바꾸면 Phase 3 에서 설계한 ACL 이 실제로 동작하는지
+검증되지 않는다. agent-dev 가 스스로 $AGENT_HOME/bin 에 쓸 수 있어야
+'개발자가 스크립트를 작성하고 운영자가 실행한다'는 역할 분리가 성립한다.
+agent-dev 가 직접 배치 완료
+-rwxr-x---+ 1 agent-dev agent-core 9549 Aug  9 22:30 /home/agent-admin/agent-app/bin/monitor.sh
+[NOTE] 소유자 agent-dev, 그룹 agent-core, 권한 750 인지 확인.
+그룹이 agent-core 로 자동 지정된 것은 bin 디렉토리의 setgid 덕분이다.
+agent-dev 가 chgrp 를 하지 않았는데도 그룹이 맞춰졌다.
+
+==============================================================
+ [5-2] 실행 권한 검증 — 누가 실행할 수 있는가
+==============================================================
+[NOTE] cron 실행자는 agent-admin 이다. monitor.sh 는 750(rwxr-x---)이고
+그룹이 agent-core 이므로, agent-core 소속인 agent-admin 은 그룹 권한 r-x 로
+실행할 수 있어야 한다. 반대로 agent-core 가 아닌 agent-test 는 막혀야 한다.
+Phase 3 의 권한 설계가 실제로 맞물려 돌아가는지 확인되는 지점이다.
+OK: agent-admin 실행 가능 (agent-core 소속)
+OK: agent-dev 실행 가능 (소유자)
+cat: /home/agent-admin/agent-app/bin/monitor.sh: Permission denied
+[PASS (차단 확인됨)]
+
+==============================================================
+ [5-3] 정상 경로 — cron 실행자(agent-admin)로 수동 실행
+==============================================================
+====== SYSTEM MONITOR RESULT ======
+
+[HEALTH CHECK]
+Checking process 'agent-app-linux-arm[6]4'... [OK] (PID: 1156)
+Checking port 15034... [OK]
+
+[SECURITY CHECK]
+Checking firewall (ufw)... [OK] (enabled)
+
+[RESOURCE MONITORING]
+CPU Usage  : 1.0%
+MEM Usage  : 9.0%
+DISK Used  : 25%
+
+[INFO] All resources within thresholds
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+(exit=0)
+--- [5-4] 로그 기록 확인 ---
+-rw-rw----+ 1 agent-admin agent-core 63 Aug  9 22:30 /var/log/agent-app/monitor.log
+--- 최근 라인 ---
+[2026-08-09 22:30:07] PID:1156 CPU:1.0% MEM:9.0% DISK_USED:25%
+[NOTE] 로그 포맷이 요구사항과 일치하는지 확인:
+[YYYY-MM-DD HH:MM:SS] PID:... CPU:..% MEM:..% DISK_USED:..%
+--- [5-5] 로그 파일 소유/그룹 (setgid 상속 확인) ---
+/var/log/agent-app/monitor.log  owner=agent-admin  group=agent-core  mode=660
+[NOTE] agent-admin 이 만든 파일인데 그룹이 agent-core 인 것은
+로그 디렉토리의 setgid 비트가 동작했다는 뜻이다. 이것이 없으면 파일 그룹이
+agent-admin 이 되어 agent-dev 가 로그를 읽지 못하게 된다.
+
+==============================================================
+ [5-6] 경고 경로 — 방화벽을 끄면 경고만 내고 계속 진행하는가
+==============================================================
+[NOTE] 요구사항: 방화벽 비활성 시 [WARNING] 을 출력하되 스크립트는 종료하지 않는다.
+관제 도구가 방화벽 상태 때문에 멈춰 버리면 정작 필요한 자원 지표를 잃는다.
+ENABLED=no
+====== SYSTEM MONITOR RESULT ======
+
+[HEALTH CHECK]
+Checking process 'agent-app-linux-arm[6]4'... [OK] (PID: 1156)
+Checking port 15034... [OK]
+
+[SECURITY CHECK]
+Checking firewall (ufw)... [WARNING]
+[WARNING] Firewall is not active — 인바운드가 무방비 상태입니다
+
+[RESOURCE MONITORING]
+CPU Usage  : 1.6%
+MEM Usage  : 9.0%
+DISK Used  : 25%
+
+[INFO] All resources within thresholds
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+(exit=0)
+[NOTE] 위 실행에서 [WARNING] 이 출력되었으나 exit=0 으로 정상 종료되었고
+로그도 정상 기록되었는지 확인할 것. 경고는 흐름을 끊지 않아야 한다.
+ENABLED=yes
+방화벽 복구 완료
+Checking firewall (ufw)... [OK] (enabled)
+(exit=0)
+
+==============================================================
+ [5-7] 실패 경로 — 앱이 죽으면 exit 1 로 종료하는가
+==============================================================
+[NOTE] Health Check 는 '경고'가 아니라 '실패'다. 감시 대상이 죽었는데
+관제 스크립트가 정상 종료하면 cron 이 이상을 감지할 방법이 없다.
+앱 종료됨
+====== SYSTEM MONITOR RESULT ======
+
+[HEALTH CHECK]
+Checking process 'agent-app-linux-arm[6]4'... [FAIL]
+
+[FATAL] Agent application process not running.
+====== MONITOR ABORTED ======
+(exit=1)
+[NOTE] 위 exit 코드가 1 이어야 한다. 프로세스 검사에서 [FAIL] 이 뜨고
+그 시점에 즉시 종료되므로 포트 검사 이후 단계는 실행되지 않는다.
+--- [5-8] 앱 재기동 ---
+relaunched pid=1807
+tcp   LISTEN 0      1            0.0.0.0:15034      0.0.0.0:*          
+앱 재기동 확인
+--- [5-9] 포트만 죽은 경우도 실패로 처리되는지 (참고) ---
+[NOTE] 프로세스는 살아 있으나 포트가 닫힌 상황은 별도 검사 항목이다.
+본 앱은 프로세스와 포트가 함께 움직이므로 별도 실증은 생략하고,
+스크립트 로직상 포트 검사 실패 시에도 die() 로 exit 1 함을 코드로 확인한다.
+    echo "Checking port ${AGENT_PORT}... [OK]"
+else
+    echo "Checking port ${AGENT_PORT}... [FAIL]"
+    die "Port ${AGENT_PORT} is not in LISTEN state."
+fi
+echo
+
+==============================================================
+ [5-10] 로그 로테이션 — 10MB 초과 시 동작하는가
+==============================================================
+[NOTE] 10MB 를 실제로 쌓으려면 오래 걸리므로, 더미 데이터로 임계 크기를
+만든 뒤 스크립트를 실행해 로테이션 동작을 실증한다.
+11000000 /var/log/agent-app/monitor.log
+[INFO] All resources within thresholds
+[INFO] Log size 11000000 bytes exceeds 10485760 — rotating
+[INFO] Rotated: monitor.log -> monitor.log.1 (최대 10개 보관)
+[INFO] Log appended: /var/log/agent-app/monitor.log
+(exit=0)
+-rw-rw----+ 1 agent-admin agent-core       63 Aug  9 22:30 monitor.log
+-rw-rw----+ 1 agent-admin agent-core 11000000 Aug  9 22:30 monitor.log.1
+[NOTE] monitor.log 가 monitor.log.1 로 밀려나고, 새 monitor.log 가
+작은 크기로 다시 시작되었는지 확인할 것.
+--- [5-11] 로테이션 후 정리 (이후 단계의 cron 검증을 위해 초기화) ---
+total 16
+-rw-rw----+ 1 agent-admin agent-core 13194 Aug  9 22:30 agent_app.log
+-rw-rw----+ 1 agent-admin agent-core     0 Aug  9 22:30 monitor.log
+
+=== Phase 5 gate 결과 ===
+PHASE 5 GATE: PASS
+----- exit=0 -----
+
+=========================================================================
+  RUN   : phases/phase6-cron.sh
+  AT    : 2026-08-09 22:31:16 KST
+=========================================================================
+>>> evidence file: /evidence/phase6-cron.txt
+--- [6-1] cron 데몬 상주 확인 ---
+[NOTE] cron 등록에서 가장 흔한 실패는 문법 오류가 아니라
+'cron 데몬이 아예 안 돌고 있는 것'이다. 등록은 성공하고 아무 일도 일어나지
+않으므로 원인을 찾기 어렵다. 등록 전에 데몬부터 확인한다.
+     19 root     cron
+--- [6-2] agent-admin crontab 등록 ---
+[NOTE] 리디렉션을 /dev/null 이 아니라 cron.out 으로 보내는 이유:
+cron 은 최소 환경에서 실행되므로 대화형 셸에서는 나지 않던 오류가 여기서만
+발생한다. 출력을 버리면 그 오류를 영영 볼 수 없다. cron.out 은 'cron 환경에서만
+생기는 문제'를 잡는 유일한 창구다.
+# b1-1 시스템 관제 자동화
+# monitor.sh 를 매분 실행하고, cron 환경에서만 발생하는 오류를 cron.out 에 남긴다.
+* * * * * /home/agent-admin/agent-app/bin/monitor.sh >> /var/log/agent-app/cron.out 2>&1
+--- [6-3] 등록 시점의 로그 상태 (기준점) ---
+1
+[NOTE] 기준 시각: 2026-08-09 22:31:16 / 기준 라인 수: 1
+자동 실행의 증명은 '전후 두 시점의 측정값'이 있어야 성립한다.
+한 시점의 로그만 보여 주면 수동 실행과 구별되지 않는다.
+--- [6-4] 2분 20초 대기 (매분 실행이므로 최소 2회 누적되어야 한다) ---
+  22:31:16  경과  10초  현재 라인 수: 1
+  22:31:26  경과  20초  현재 라인 수: 1
+  22:31:36  경과  30초  현재 라인 수: 1
+  22:31:46  경과  40초  현재 라인 수: 1
+  22:31:56  경과  50초  현재 라인 수: 1
+  22:32:06  경과  60초  현재 라인 수: 2
+  22:32:16  경과  70초  현재 라인 수: 2
+  22:32:26  경과  80초  현재 라인 수: 2
+  22:32:36  경과  90초  현재 라인 수: 2
+  22:32:46  경과 100초  현재 라인 수: 2
+  22:32:56  경과 110초  현재 라인 수: 2
+  22:33:06  경과 120초  현재 라인 수: 3
+  22:33:16  경과 130초  현재 라인 수: 3
+  22:33:26  경과 140초  현재 라인 수: 3
+--- [6-5] 자동 누적 결과 ---
+기준 시각 : 2026-08-09 22:31:16   라인 수: 1
+측정 시각 : 2026-08-09 22:33:36   라인 수: 3
+증가분   : 2 줄
+--- [6-6] 누적된 로그 (타임스탬프가 1분 간격인지) ---
+[2026-08-09 22:30:19] PID:1807 CPU:2.3% MEM:8.9% DISK_USED:25%
+[2026-08-09 22:32:02] PID:1807 CPU:2.7% MEM:8.9% DISK_USED:25%
+[2026-08-09 22:33:02] PID:1807 CPU:1.4% MEM:9.0% DISK_USED:25%
+[NOTE] 타임스탬프가 정확히 1분 간격으로 찍혀 있다면 cron 이 스케줄대로
+실행한 것이다. 수동 실행이었다면 간격이 불규칙했을 것이다.
+--- [6-7] cron 실행 기록 (시스템 로그) ---
+
+--- [6-8] cron.out — cron 환경에서의 오류 여부 ---
+--- cron.out 내용 (마지막 25줄) ---
+[RESOURCE MONITORING]
+CPU Usage  : 2.7%
+MEM Usage  : 8.9%
+DISK Used  : 25%
+
+[INFO] All resources within thresholds
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+====== SYSTEM MONITOR RESULT ======
+
+[HEALTH CHECK]
+Checking process 'agent-app-linux-arm[6]4'... [OK] (PID: 1807)
+Checking port 15034... [OK]
+
+[SECURITY CHECK]
+Checking firewall (ufw)... [OK] (enabled)
+
+[RESOURCE MONITORING]
+CPU Usage  : 1.4%
+MEM Usage  : 9.0%
+DISK Used  : 25%
+
+[INFO] All resources within thresholds
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+--- [6-9] 임계값 경고가 실제로 기록되었는지 ---
+[NOTE] 제공 앱이 CPU/메모리를 주기적으로 끌어올리므로, 시간이 지나면
+임계값 경고가 자연스럽게 발생한다. 인위적 부하 없이 경고 로직이 동작하는지
+확인한다.
+0
+0
+
+--- [6-10] 자원 사용률 추이 ---
+PID:1807 CPU:2.3% MEM:8.9% DISK_USED:25%
+PID:1807 CPU:2.7% MEM:8.9% DISK_USED:25%
+PID:1807 CPU:1.4% MEM:9.0% DISK_USED:25%
+
+=== Phase 6 gate 결과 ===
+PHASE 6 GATE: PASS
+----- exit=0 -----
+
+=========================================================================
+  RUN   : phases/phase6b-threshold.sh
+  AT    : 2026-08-09 22:35:01 KST
+=========================================================================
+>>> evidence file: /evidence/phase6-cron.txt
+[NOTE] [임계값 경고 실증 — 왜 별도 검증이 필요한가]
+Phase 6 의 cron 누적 구간에서는 임계값 경고가 한 번도 뜨지 않았다.
+원인은 스크립트 결함이 아니라 장비 규모다.
+  - CPU 20 코어 → 앱이 코어 하나를 100% 써도 시스템 전체로는 5%
+  - MEM 119.6GB → 앱이 256MB 를 잡아도 전체 비율은 0.2% 남짓
+요구사항의 임계값(CPU 20%, MEM 10%)은 소형 VM 기준으로 잡힌 값이라
+이 장비에서는 평상시 부하로 도달하지 않는다.
+
+따라서 경고 경로를 두 가지 방법으로 각각 실증한다.
+  (1) CPU  — 실제 부하를 걸어 진짜로 20% 를 넘긴다. 측정값도 경고도 모두 진짜다.
+  (2) MEM/DISK — 119GB 메모리와 디스크를 한계까지 채우는 것은 위험하고 무의미하므로,
+      임계값을 낮춰 주입하는 방식으로 비교·분기 로직이 동작함을 확인한다.
+      스크립트의 기본값은 요구사항 그대로(20/10/80) 유지되며 변경하지 않았다.
+--- [6b-1] 장비 규모 (경고가 왜 안 떴는지의 근거) ---
+CPU cores : 20
+MemTotal  : 119.6 GB
+코어 1개를 100% 점유해도 시스템 전체로는 5.0%
+
+==============================================================
+ [6b-2] CPU 경고 — 실제 부하를 걸어 검증
+==============================================================
+[NOTE] 20코어 중 8개를 점유해 시스템 CPU 사용률을 40% 안팎으로 올린다.
+monitor.sh 는 /proc/stat 을 1초 간격으로 샘플링하므로 이 구간의 실제
+사용률이 그대로 측정된다. 부하는 12초 후 자동 종료된다.
+부하 생성기 8개 기동 (12초 후 자동 종료)
+====== SYSTEM MONITOR RESULT ======
+
+[HEALTH CHECK]
+Checking process 'agent-app-linux-arm[6]4'... [OK] (PID: 1807)
+Checking port 15034... [OK]
+
+[SECURITY CHECK]
+Checking firewall (ufw)... [OK] (enabled)
+
+[RESOURCE MONITORING]
+CPU Usage  : 1.7%
+MEM Usage  : 8.8%
+DISK Used  : 25%
+
+[INFO] All resources within thresholds
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+(exit=0)
+[NOTE] 위 출력에서 CPU Usage 가 20% 를 넘고 [WARNING] CPU threshold exceeded 가
+출력되었는지 확인할 것. 부하는 실제이며 측정값도 실제다.
+부하 종료 대기 완료
+--- [6b-3] 부하 해제 후 정상 복귀 확인 ---
+CPU Usage  : 0.8%
+[INFO] All resources within thresholds
+(exit=0)
+
+==============================================================
+ [6b-4] MEM / DISK 경고 — 임계값 주입으로 분기 로직 검증
+==============================================================
+[NOTE] 실제 사용률은 그대로 두고 임계값만 낮춰 실행한다.
+'현재 MEM 9% > 임계값 1%' 이므로 경고가 발생해야 한다.
+이는 수치를 조작하는 것이 아니라, 비교 대상을 바꿔 분기를 태우는 방식이다.
+MEM Usage  : 8.8%
+[WARNING] MEM threshold exceeded (8.8% > 1%)
+(exit=0)
+DISK Used  : 25%
+[WARNING] DISK threshold exceeded (25% > 1%)
+(exit=0)
+--- [6b-5] 세 경고 동시 발생 ---
+====== SYSTEM MONITOR RESULT ======
+
+[HEALTH CHECK]
+Checking process 'agent-app-linux-arm[6]4'... [OK] (PID: 1807)
+Checking port 15034... [OK]
+
+[SECURITY CHECK]
+Checking firewall (ufw)... [OK] (enabled)
+
+[RESOURCE MONITORING]
+CPU Usage  : 1.8%
+MEM Usage  : 8.8%
+DISK Used  : 25%
+
+[WARNING] CPU threshold exceeded (1.8% > 0%)
+[WARNING] MEM threshold exceeded (8.8% > 1%)
+[WARNING] DISK threshold exceeded (25% > 1%)
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+(exit=0)
+[NOTE] 세 경고가 모두 출력되면서도 exit=0 으로 정상 종료되고 로그가 기록되는지
+확인할 것. 경고는 흐름을 끊지 않는다는 요구사항이 지켜지는 지점이다.
+--- [6b-6] 기본값이 요구사항 그대로인지 재확인 ---
+CPU_THRESHOLD="${CPU_THRESHOLD:-20}"
+MEM_THRESHOLD="${MEM_THRESHOLD:-10}"
+DISK_THRESHOLD="${DISK_THRESHOLD:-80}"
+[NOTE] 환경 변수를 주지 않으면 CPU 20 / MEM 10 / DISK 80 으로 동작한다.
+요구사항의 기본 동작은 변경되지 않았다.
+
+=== Phase 6b gate 결과 ===
+PHASE 6b GATE: PASS
+----- exit=0 -----
+
+=========================================================================
+  RUN   : phases/phase6c-cpu-load.sh
+  AT    : 2026-08-09 22:36:15 KST
+=========================================================================
+>>> evidence file: /evidence/phase6-cron.txt
+[NOTE] [6b-2 실패 기록 — 원인 및 수정]
+증상 : CPU 부하 생성기 8개를 띄운 뒤 monitor.sh 를 실행했는데
+       CPU Usage 가 1.7% 로 측정되어 경고가 발생하지 않았다.
+원인 : 스크립트가 아니라 '측정 방법'의 결함이었다.
+       부하 생성을 rec 헬퍼(recsh)로 실행했는데, recsh 내부는
+         out="$(bash -c "$1" 2>&1)"
+       즉 명령 치환이다. 명령 치환은 stdout 파이프가 닫힐 때까지 기다리는데,
+       백그라운드 잡이 그 stdout 을 상속받으므로 12초 부하가 전부 끝날 때까지
+       블록된다. 결과적으로 '부하가 끝난 뒤에' monitor.sh 가 실행됐다.
+수정 : 부하 생성기의 stdin/stdout/stderr 를 모두 분리하고 setsid 로 떼어내
+       명령 치환이 기다리지 않게 한다. 그 상태에서 부하와 측정을 겹치게 한다.
+교훈 : 백그라운드 프로세스를 명령 치환 안에서 띄우면 비동기가 아니게 된다.
+       '실행은 됐는데 기대한 효과가 없다'면 측정 도구 자체를 의심해야 한다.
+--- [6c-1] 부하 생성 (stdout 분리로 진짜 비동기 실행) ---
+코어 20개 중 10개 점유 시도
+--- [6c-2] 부하가 실제로 걸렸는지 확인 ---
+load average: 0.89 0.59 0.34
+busy bash 프로세스 수: 22
+--- [6c-3] 부하 상태에서 monitor.sh 실행 (기본 임계값 CPU 20%) ---
+====== SYSTEM MONITOR RESULT ======
+
+[HEALTH CHECK]
+Checking process 'agent-app-linux-arm[6]4'... [OK] (PID: 1807)
+Checking port 15034... [OK]
+
+[SECURITY CHECK]
+Checking firewall (ufw)... [OK] (enabled)
+
+[RESOURCE MONITORING]
+CPU Usage  : 51.7%
+MEM Usage  : 9.0%
+DISK Used  : 25%
+
+[WARNING] CPU threshold exceeded (51.7% > 20%)
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+(exit=0)
+[NOTE] 이번 실행의 CPU Usage 는 실제 부하에 의한 측정값이며,
+임계값 20% 를 넘겨 [WARNING] CPU threshold exceeded 가 출력되어야 한다.
+임계값 주입 없이 기본값 그대로 경고가 발생한 것이 핵심이다.
+--- [6c-4] 부하 해제 대기 후 정상 복귀 ---
+
+CPU Usage  : 11.5%
+[INFO] All resources within thresholds
+(exit=0)
+
+=== Phase 6c gate 결과 ===
+CPU Usage  : 52.0%
+----- exit=143 -----
+
+=========================================================================
+  RUN   : phases/phase6d-gate.sh
+  AT    : 2026-08-09 22:37:08 KST
+=========================================================================
+>>> evidence file: /evidence/phase6-cron.txt
+[NOTE] [pkill 자기매치 — 같은 함정 3회째]
+Phase 6c 의 gate 가 exit=143(SIGTERM) 으로 중단됐다.
+gate 안에서 pkill -f 'while :' 를 실행했는데, 그 gate 자체가
+bash -c "... pkill -f 'while :' ..." 로 돌고 있어 자기 명령줄이 패턴에 매치됐다.
+Phase 4 의 앱 종료, 이번 부하 종료 — 같은 원인으로 세 번 걸렸다.
+
+일반화하면: pkill/pgrep -f 는 '자기 자신을 포함한' 전체 프로세스 목록을 훑는다.
+패턴 문자열이 실행 중인 셸의 명령줄에 남아 있으면 반드시 자기를 잡는다.
+대응은 두 가지다.
+  (1) 패턴에 대괄호를 넣어 문자열과 정규식을 어긋나게 한다: 'whil[e] :'
+  (2) 패턴을 파일(스크립트) 안에 두고 명령줄에는 노출하지 않는다.
+monitor.sh 는 (2)에 해당해 안전하지만, 감시 패턴에 (1)도 함께 적용해 두었다.
+--- 잔여 부하 프로세스 정리 (안전 패턴) ---
+잔여: 0
+0
+
+=== Phase 6c gate 재실행 (실부하 기본 임계값 CPU 경고) ===
+CPU Usage  : 51.3%
+[WARNING] CPU threshold exceeded (51.3% > 20%)
+PHASE 6c GATE: PASS
+정리 완료. 잔여: 0
+0
+CPU Usage  : 1.4%
+[INFO] All resources within thresholds
+----- exit=0 -----
+
+=========================================================================
+  RUN   : phases/phase7-bonus.sh
+  AT    : 2026-08-09 22:40:21 KST
+=========================================================================
+>>> evidence file: /evidence/phase7-bonus.txt
+--- [7-1] 보너스 스크립트 배치 (agent-dev 가 작성) ---
+total 20
+-rwxr-x---+ 1 agent-dev agent-core  6433 Aug  9 22:40 $s
+-rwxr-x---+ 1 agent-dev agent-core 10115 Aug  9 22:35 monitor.sh
+--- [7-2] awk 구현체 확인 (이식성 전제) ---
+/usr/bin/mawk
+mawk 1.3.4 20240123
+[NOTE] Ubuntu 기본 awk 는 gawk 가 아니라 mawk 다.
+report.sh 초안에서 gawk 전용 기능인 3인자 match(str, re, arr) 를 썼다가
+mawk 에서 동작하지 않음을 확인하고, substr/sub 기반의 이식성 있는 구현으로
+다시 작성했다. '내 환경의 awk'와 '서버의 awk'가 다를 수 있다는 점은
+스크립트를 배포할 때 반복해서 문제가 되는 지점이다.
+
+==============================================================
+ [7-3] report.sh — 전체 구간 통계
+==============================================================
+sudo: /home/agent-admin/agent-app/bin/report.sh: command not found
+(exit=1)
+--- [7-4] report.sh — 구간 필터 ---
+로그 전체 구간: 2026-08-09 22:30:19 ~ 2026-08-09 22:40:02
+
+--- 마지막 3분 구간만 분석 ---
+sudo: /home/agent-admin/agent-app/bin/report.sh: command not found
+--- [7-5] report.sh — 예외 처리 (없는 파일 / 빈 구간) ---
+sudo: /home/agent-admin/agent-app/bin/report.sh: command not found
+(exit=1)
+sudo: /home/agent-admin/agent-app/bin/report.sh: command not found
+(exit=1)
+sudo: /home/agent-admin/agent-app/bin/report.sh: command not found
+[PASS (차단 확인됨)]
+
+==============================================================
+ [7-6] archive_logs.sh — 대상 0건일 때 안전 종료
+==============================================================
+[NOTE] 지금은 오래된 로그가 없다. '대상 없음'이 오류로 처리되지 않고
+정상 종료(exit 0)하는지 먼저 확인한다. 아무 일도 일어나지 않는 상황을
+오류로 만들면 cron 이 매일 거짓 경보를 울리게 된다.
+sudo: /home/agent-admin/agent-app/bin/archive_logs.sh: command not found
+(exit=1)
+
+==============================================================
+ [7-7] archive_logs.sh — 가짜 오래된 로그로 실제 동작 검증
+==============================================================
+[NOTE] 7일/30일 경과를 실제로 기다릴 수 없으므로 touch -d 로 파일의
+수정 시각을 과거로 조작해 검증한다. find -mtime 은 mtime 을 보므로
+이 방법으로 정확히 같은 조건을 만들 수 있다.
+-rw-rw----+ 1 agent-admin agent-core 41377 2026-08-09 /var/log/agent-app/agent_app.log
+-rw-rw----+ 1 agent-admin agent-core  1391 2026-08-09 /var/log/agent-app/monitor.log
+-rw-rw----+ 1 agent-admin agent-core    60 2026-07-30 /var/log/agent-app/monitor.log.1
+-rw-rw----+ 1 agent-admin agent-core    60 2026-07-30 /var/log/agent-app/monitor.log.2
+-rw-rw----+ 1 agent-admin agent-core    60 2026-08-06 /var/log/agent-app/monitor.log.3
+--- [7-8] dry-run 으로 먼저 확인 ---
+[NOTE] 파일을 지우거나 옮기는 스크립트는 실행 전에 대상을 보여 줄 수 있어야 한다.
+--dry-run 은 사고를 막는 최소한의 장치다.
+sudo: /home/agent-admin/agent-app/bin/archive_logs.sh: command not found
+(exit=1)
+--- [7-9] 실제 실행 ---
+sudo: /home/agent-admin/agent-app/bin/archive_logs.sh: command not found
+(exit=1)
+--- [7-10] 결과 확인 ---
+--- 원본 디렉토리 ---
+total 68
+-rw-rw----+ 1 agent-admin agent-core 41377 2026-08-09 agent_app.log
+-rw-rw----+ 1 agent-admin agent-core  3502 2026-08-09 cron.out
+-rw-rw----+ 1 agent-admin agent-core  1391 2026-08-09 monitor.log
+-rw-rw----+ 1 agent-admin agent-core    60 2026-07-30 monitor.log.1
+-rw-rw----+ 1 agent-admin agent-core    60 2026-07-30 monitor.log.2
+-rw-rw----+ 1 agent-admin agent-core    60 2026-08-06 monitor.log.3
+--- 아카이브 디렉토리 ---
+[NOTE] 확인 사항:
+  - 10일 경과 로그 2개가 .gz 로 압축되어 아카이브로 이동했는가
+  - 3일 경과 로그(monitor.log.3)는 그대로 남아 있는가 (7일 미만이므로 제외)
+  - 활성 로그 monitor.log 는 건드리지 않았는가
+
+--- [7-11] 30일 경과 아카이브 삭제 검증 ---
+ls: cannot access '/var/log/monitor/agent-app/archive/': No such file or directory
+sudo: /home/agent-admin/agent-app/bin/archive_logs.sh: command not found
+sudo: /home/agent-admin/agent-app/bin/archive_logs.sh: command not found
+(exit=1)
+ls: cannot access '/var/log/monitor/agent-app/archive/': No such file or directory
+[NOTE] 40일 경과로 조작한 monitor.log.1.gz 만 삭제되고,
+방금 만들어진 monitor.log.2.gz 는 남아 있어야 한다.
+--- [7-12] 정리 ---
+total 56
+-rw-rw----+ 1 agent-admin agent-core 41377 Aug  9 22:40 agent_app.log
+-rw-rw----+ 1 agent-admin agent-core  3502 Aug  9 22:40 cron.out
+-rw-rw----+ 1 agent-admin agent-core  1391 Aug  9 22:40 monitor.log
+
+=== Phase 7 gate 결과 ===
+stat: cannot statx '/home/agent-admin/agent-app/bin/report.sh': No such file or directory
+NG: report.sh perm
+stat: cannot statx '/home/agent-admin/agent-app/bin/archive_logs.sh': No such file or directory
+NG: archive_logs.sh perm
+sudo: /home/agent-admin/agent-app/bin/report.sh: command not found
+NG: report 출력 없음
+sudo: /home/agent-admin/agent-app/bin/report.sh: command not found
+NG: 샘플 수 없음
+NG: 없는 파일에서 exit != 0
+NG: archive 정상 종료 실패
+NG: 아카이브 디렉토리 없음
+PHASE 7 GATE: FAIL
+----- exit=1 -----
+
+=========================================================================
+  RUN   : phases/phase7-bonus.sh
+  AT    : 2026-08-09 22:41:05 KST
+=========================================================================
+>>> evidence file: /evidence/phase7-bonus.txt
+--- [7-1] 보너스 스크립트 배치 (agent-dev 가 작성) ---
+[NOTE] [따옴표 실수 기록]
+첫 시도에서 배치 루프를 아래처럼 썼다가 실패했다.
+    sudo -u agent-dev cp /tmp/\$s '$BIN/\$s'
+바깥 큰따옴표가 $BIN 을 먼저 치환하고 나면 안쪽에는 작은따옴표로 감싼
+'$s' 만 남는다. 작은따옴표 안에서는 변수 확장이 일어나지 않으므로
+루프 변수 대신 '$s' 라는 이름의 파일이 만들어졌고, 이후 모든 검증이
+'command not found' 로 연쇄 실패했다.
+수정 : 변수를 확장해야 하는 경로는 큰따옴표로 감싼다.
+교훈 : 중첩 따옴표는 '바깥이 먼저 치환되고 안쪽이 남는다'는 순서를 기억해야 한다.
+       실패가 배치 단계에서 났는데 증상은 검증 단계에서 나타나, 원인 지점과
+       증상 지점이 떨어져 있었다. 각 단계의 종료코드를 기록해 둔 덕분에
+       거슬러 올라가 찾을 수 있었다.
+total 28
+-rwxr-x---+ 1 agent-dev agent-core  6433 Aug  9 22:41 archive_logs.sh
+-rwxr-x---+ 1 agent-dev agent-core 10115 Aug  9 22:35 monitor.sh
+-rwxr-x---+ 1 agent-dev agent-core  5098 Aug  9 22:41 report.sh
+--- [7-2] awk 구현체 확인 (이식성 전제) ---
+/usr/bin/mawk
+mawk 1.3.4 20240123
+[NOTE] Ubuntu 기본 awk 는 gawk 가 아니라 mawk 다.
+report.sh 초안에서 gawk 전용 기능인 3인자 match(str, re, arr) 를 썼다가
+mawk 에서 동작하지 않음을 확인하고, substr/sub 기반의 이식성 있는 구현으로
+다시 작성했다. '내 환경의 awk'와 '서버의 awk'가 다를 수 있다는 점은
+스크립트를 배포할 때 반복해서 문제가 되는 지점이다.
+
+==============================================================
+ [7-3] report.sh — 전체 구간 통계
+==============================================================
+    ====== STATISTICS REPORT ======
+      source : /var/log/agent-app/monitor.log
+
+      [CPU]
+        Average : 10.4%
+        Maximum : 52.0% at 2026-08-09 22:36:24
+        Minimum : 0.8% at 2026-08-09 22:35:18
+      [Memory]
+        Average : 8.9%
+        Maximum : 9.1% at 2026-08-09 22:36:20
+        Minimum : 8.8% at 2026-08-09 22:35:14
+      [Disk]
+        Average : 25.0%
+        Maximum : 25.0% at 2026-08-09 22:30:19
+        Minimum : 25.0% at 2026-08-09 22:30:19
+      [Samples]
+        Data Points: 23 samples
+        Range      : 2026-08-09 22:30:19 ~ 2026-08-09 22:41:02
+(exit=0)
+--- [7-4] report.sh — 구간 필터 ---
+로그 전체 구간: 2026-08-09 22:30:19 ~ 2026-08-09 22:41:02
+
+--- 마지막 3분 구간만 분석 ---
+    ====== STATISTICS REPORT ======
+      source : /var/log/agent-app/monitor.log
+      period : 2026-08-09 22:38:05 ~ (마지막)
+
+      [CPU]
+        Average : 2.0%
+        Maximum : 2.9% at 2026-08-09 22:41:02
+        Minimum : 1.5% at 2026-08-09 22:39:02
+      [Memory]
+        Average : 8.9%
+        Maximum : 9.0% at 2026-08-09 22:41:02
+        Minimum : 8.9% at 2026-08-09 22:39:02
+      [Disk]
+        Average : 25.0%
+        Maximum : 25.0% at 2026-08-09 22:39:02
+        Minimum : 25.0% at 2026-08-09 22:39:02
+      [Samples]
+        Data Points: 3 samples
+        Range      : 2026-08-09 22:39:02 ~ 2026-08-09 22:41:02
+--- [7-5] report.sh — 예외 처리 (없는 파일 / 빈 구간) ---
+[WARNING] 로그 파일이 없습니다: /var/log/agent-app/nonexistent.log
+[INFO] monitor.sh 가 아직 한 번도 실행되지 않았을 수 있습니다.
+(exit=0)
+[WARNING] 분석할 데이터가 없습니다.
+[INFO] 지정한 구간에 해당하는 로그가 없을 수 있습니다.
+(exit=0)
+sudo: unable to execute /home/agent-admin/agent-app/bin/report.sh: Permission denied
+[PASS (차단 확인됨)]
+
+==============================================================
+ [7-6] archive_logs.sh — 대상 0건일 때 안전 종료
+==============================================================
+[NOTE] 지금은 오래된 로그가 없다. '대상 없음'이 오류로 처리되지 않고
+정상 종료(exit 0)하는지 먼저 확인한다. 아무 일도 일어나지 않는 상황을
+오류로 만들면 cron 이 매일 거짓 경보를 울리게 된다.
+====== LOG ARCHIVE / RETENTION ======
+source  : /var/log/agent-app
+archive : /var/log/monitor/agent-app/archive
+policy  : 7일 경과 압축 → 아카이브 이동, 30일 경과 아카이브 삭제
+
+[INFO] 아카이브 디렉토리가 없어 생성합니다: /var/log/monitor/agent-app/archive
+[ERROR] 아카이브 디렉토리를 만들 수 없습니다: /var/log/monitor/agent-app/archive
+[INFO] 상위 경로에 쓰기 권한이 필요합니다. 관리자에게 요청하세요.
+(exit=1)
+
+==============================================================
+ [7-7] archive_logs.sh — 가짜 오래된 로그로 실제 동작 검증
+==============================================================
+[NOTE] 7일/30일 경과를 실제로 기다릴 수 없으므로 touch -d 로 파일의
+수정 시각을 과거로 조작해 검증한다. find -mtime 은 mtime 을 보므로
+이 방법으로 정확히 같은 조건을 만들 수 있다.
+-rw-rw----+ 1 agent-admin agent-core 43979 2026-08-09 /var/log/agent-app/agent_app.log
+-rw-rw----+ 1 agent-admin agent-core  1454 2026-08-09 /var/log/agent-app/monitor.log
+-rw-rw----+ 1 agent-admin agent-core    60 2026-07-30 /var/log/agent-app/monitor.log.1
+-rw-rw----+ 1 agent-admin agent-core    60 2026-07-30 /var/log/agent-app/monitor.log.2
+-rw-rw----+ 1 agent-admin agent-core    60 2026-08-06 /var/log/agent-app/monitor.log.3
+--- [7-8] dry-run 으로 먼저 확인 ---
+[NOTE] 파일을 지우거나 옮기는 스크립트는 실행 전에 대상을 보여 줄 수 있어야 한다.
+--dry-run 은 사고를 막는 최소한의 장치다.
+====== LOG ARCHIVE / RETENTION ======
+source  : /var/log/agent-app
+archive : /var/log/monitor/agent-app/archive
+policy  : 7일 경과 압축 → 아카이브 이동, 30일 경과 아카이브 삭제
+mode    : DRY-RUN (실제 변경 없음)
+
+[INFO] 아카이브 디렉토리가 없어 생성합니다: /var/log/monitor/agent-app/archive
+         (dry-run) mkdir -p /var/log/monitor/agent-app/archive
+[STEP 1] 7일 경과 로그 압축 및 이동
+  대상 없음 — 7일 이상 경과한 로그가 없습니다. (정상)
+
+[STEP 2] 30일 경과 아카이브 삭제
+  대상 없음 — 30일 이상 경과한 아카이브가 없습니다. (정상)
+
+====== SUMMARY ======
+compressed : 0
+deleted    : 0
+archive 현황:
+(exit=0)
+--- [7-9] 실제 실행 ---
+====== LOG ARCHIVE / RETENTION ======
+source  : /var/log/agent-app
+archive : /var/log/monitor/agent-app/archive
+policy  : 7일 경과 압축 → 아카이브 이동, 30일 경과 아카이브 삭제
+
+[INFO] 아카이브 디렉토리가 없어 생성합니다: /var/log/monitor/agent-app/archive
+[ERROR] 아카이브 디렉토리를 만들 수 없습니다: /var/log/monitor/agent-app/archive
+[INFO] 상위 경로에 쓰기 권한이 필요합니다. 관리자에게 요청하세요.
+(exit=1)
+--- [7-10] 결과 확인 ---
+--- 원본 디렉토리 ---
+total 68
+-rw-rw----+ 1 agent-admin agent-core 43979 2026-08-09 agent_app.log
+-rw-rw----+ 1 agent-admin agent-core  3874 2026-08-09 cron.out
+-rw-rw----+ 1 agent-admin agent-core  1454 2026-08-09 monitor.log
+-rw-rw----+ 1 agent-admin agent-core    60 2026-07-30 monitor.log.1
+-rw-rw----+ 1 agent-admin agent-core    60 2026-07-30 monitor.log.2
+-rw-rw----+ 1 agent-admin agent-core    60 2026-08-06 monitor.log.3
+--- 아카이브 디렉토리 ---
+[NOTE] 확인 사항:
+  - 10일 경과 로그 2개가 .gz 로 압축되어 아카이브로 이동했는가
+  - 3일 경과 로그(monitor.log.3)는 그대로 남아 있는가 (7일 미만이므로 제외)
+  - 활성 로그 monitor.log 는 건드리지 않았는가
+
+--- [7-11] 30일 경과 아카이브 삭제 검증 ---
+ls: cannot access '/var/log/monitor/agent-app/archive/': No such file or directory
+[STEP 2] 30일 경과 아카이브 삭제
+  대상 없음 — 30일 이상 경과한 아카이브가 없습니다. (정상)
+
+====== SUMMARY ======
+(exit=1)
+ls: cannot access '/var/log/monitor/agent-app/archive/': No such file or directory
+[NOTE] 40일 경과로 조작한 monitor.log.1.gz 만 삭제되고,
+방금 만들어진 monitor.log.2.gz 는 남아 있어야 한다.
+--- [7-12] 정리 ---
+total 56
+-rw-rw----+ 1 agent-admin agent-core 43979 Aug  9 22:41 agent_app.log
+-rw-rw----+ 1 agent-admin agent-core  3874 Aug  9 22:41 cron.out
+-rw-rw----+ 1 agent-admin agent-core  1454 Aug  9 22:41 monitor.log
+
+=== Phase 7 gate 결과 ===
+NG: archive 정상 종료 실패
+NG: 아카이브 디렉토리 없음
+PHASE 7 GATE: FAIL
+----- exit=1 -----
+
+=========================================================================
+  RUN   : phases/phase7b-archive.sh
+  AT    : 2026-08-09 22:42:02 KST
+=========================================================================
+>>> evidence file: /evidence/phase7-bonus.txt
+[NOTE] [아카이브 디렉토리 생성 실패 — 스크립트 결함이 아니라 환경 미비]
+증상 : archive_logs.sh 가 '아카이브 디렉토리를 만들 수 없습니다' 로 exit 1.
+원인 : /var/log 는 root:root 755 다. 실행자 agent-admin 은 비특권 계정이므로
+       그 아래에 /var/log/monitor 를 만들 수 없다.
+판단 : 이것은 스크립트 버그가 아니다. 오히려 스크립트가 해야 할 일을 했다.
+       - 권한이 없음을 감지했고
+       - 무엇이 부족한지(상위 경로 쓰기 권한) 명시했으며
+       - 부분 작업을 남기지 않고 exit 1 로 안전하게 멈췄다
+       요구사항의 '권한 부족 시 안전하게 종료/경고' 가 실제로 동작한 사례다.
+대응 : 로그 디렉토리(/var/log/agent-app)를 root 가 미리 만들어 준 것과 똑같이,
+       아카이브 경로도 root 가 사전 프로비저닝하고 소유권을 agent-core 에 넘긴다.
+       '운영 계정은 자기 영역 안에서만 움직이고, 영역 자체는 관리자가 만든다'는
+       최소 권한 운영의 기본 형태다.
+--- [7b-1] 아카이브 디렉토리 프로비저닝 (root 작업) ---
+drwxr-s---  3 agent-admin agent-core 4096 Aug  9 22:42 /var/log/monitor
+drwxr-s---  3 agent-admin agent-core 4096 Aug  9 22:42 /var/log/monitor/agent-app
+drwxrws---+ 2 agent-admin agent-core 4096 Aug  9 22:42 /var/log/monitor/agent-app/archive
+user::rwx
+group::rwx
+group:agent-core:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-core:rwx
+default:mask::rwx
+default:other::---
+--- [7b-2] agent-admin 이 아카이브에 쓸 수 있는지 ---
+OK: agent-admin 쓰기 가능
+ls: cannot access '/var/log/monitor/agent-app/archive': Permission denied
+[PASS (차단 확인됨)]
+
+--- [7b-3] 검증용 오래된 로그 재생성 ---
+-rw-rw----+ 1 agent-admin agent-core 1517 2026-08-09 /var/log/agent-app/monitor.log
+-rw-rw----+ 1 agent-admin agent-core   60 2026-07-30 /var/log/agent-app/monitor.log.1
+-rw-rw----+ 1 agent-admin agent-core   60 2026-07-30 /var/log/agent-app/monitor.log.2
+-rw-rw----+ 1 agent-admin agent-core   60 2026-08-06 /var/log/agent-app/monitor.log.3
+--- [7b-4] dry-run 으로 대상 확인 ---
+====== LOG ARCHIVE / RETENTION ======
+source  : /var/log/agent-app
+archive : /var/log/monitor/agent-app/archive
+policy  : 7일 경과 압축 → 아카이브 이동, 30일 경과 아카이브 삭제
+mode    : DRY-RUN (실제 변경 없음)
+
+[STEP 1] 7일 경과 로그 압축 및 이동
+  대상 없음 — 7일 이상 경과한 로그가 없습니다. (정상)
+
+[STEP 2] 30일 경과 아카이브 삭제
+  대상 없음 — 30일 이상 경과한 아카이브가 없습니다. (정상)
+
+====== SUMMARY ======
+compressed : 0
+deleted    : 0
+archive 현황:
+  파일 0개, 총 4.0K
+(exit=0)
+--- [7b-5] 실제 실행 ---
+====== LOG ARCHIVE / RETENTION ======
+source  : /var/log/agent-app
+archive : /var/log/monitor/agent-app/archive
+policy  : 7일 경과 압축 → 아카이브 이동, 30일 경과 아카이브 삭제
+
+[STEP 1] 7일 경과 로그 압축 및 이동
+  대상 없음 — 7일 이상 경과한 로그가 없습니다. (정상)
+
+[STEP 2] 30일 경과 아카이브 삭제
+  대상 없음 — 30일 이상 경과한 아카이브가 없습니다. (정상)
+
+====== SUMMARY ======
+compressed : 0
+deleted    : 0
+archive 현황:
+  파일 0개, 총 4.0K
+(exit=0)
+--- [7b-6] 결과 확인 ---
+--- 원본 디렉토리 ---
+-rw-rw----+ 1 agent-admin agent-core  1517 2026-08-09 monitor.log
+-rw-rw----+ 1 agent-admin agent-core    60 2026-07-30 monitor.log.1
+-rw-rw----+ 1 agent-admin agent-core    60 2026-07-30 monitor.log.2
+-rw-rw----+ 1 agent-admin agent-core    60 2026-08-06 monitor.log.3
+--- 아카이브 디렉토리 ---
+total 0
+[NOTE] 확인 사항:
+  - 10일 경과 monitor.log.1 / .2 가 .gz 로 압축되어 아카이브로 이동했는가
+  - 3일 경과 monitor.log.3 은 원본에 그대로 남아 있는가 (7일 미만이므로 제외)
+  - 활성 로그 monitor.log 는 건드리지 않았는가 (사용 중 파일 보호)
+
+--- [7b-7] 30일 경과 아카이브 삭제 검증 ---
+total 0
+-rw-rw----+ 1 agent-admin agent-core 0 2026-06-30 monitor.log.1.gz
+[STEP 2] 30일 경과 아카이브 삭제
+  - delete: monitor.log.1.gz
+         (dry-run) rm -f /var/log/monitor/agent-app/archive/monitor.log.1.gz
+  삭제 완료: 1건
+[STEP 2] 30일 경과 아카이브 삭제
+  - delete: monitor.log.1.gz
+  삭제 완료: 1건
+
+====== SUMMARY ======
+compressed : 0
+deleted    : 1
+archive 현황:
+  파일 0개, 총 4.0K
+(exit=0)
+total 0
+[NOTE] 40일로 조작한 monitor.log.1.gz 만 삭제되고 monitor.log.2.gz 는 남아야 한다.
+
+--- [7b-8] 예외 처리 재확인: 없는 디렉토리 / 읽기 권한 없음 ---
+====== LOG ARCHIVE / RETENTION ======
+source  : /var/log/agent-app
+archive : /var/log/monitor/agent-app/archive
+policy  : 7일 경과 압축 → 아카이브 이동, 30일 경과 아카이브 삭제
+
+[STEP 1] 7일 경과 로그 압축 및 이동
+  대상 없음 — 7일 이상 경과한 로그가 없습니다. (정상)
+
+[STEP 2] 30일 경과 아카이브 삭제
+  대상 없음 — 30일 이상 경과한 아카이브가 없습니다. (정상)
+
+====== SUMMARY ======
+compressed : 0
+deleted    : 0
+archive 현황:
+  파일 0개, 총 4.0K
+(exit=0)
+[NOTE] 존재하지 않는 디렉토리를 지정해도 오류로 죽지 않고 경고 후 exit 0 한다.
+'아직 로그가 없는 신규 서버'에서 cron 이 매일 거짓 경보를 울리지 않게 하려는 설계다.
+--- [7b-9] 정리 ---
+/var/log/agent-app/:
+total 64
+-rw-rw----+ 1 agent-admin agent-core 46286 Aug  9 22:42 agent_app.log
+-rw-rw----+ 1 agent-admin agent-core  4246 Aug  9 22:42 cron.out
+-rw-rw----+ 1 agent-admin agent-core  1517 Aug  9 22:42 monitor.log
+
+/var/log/monitor/agent-app/archive/:
+total 0
+
+=== Phase 7 gate 재검증 ===
+PHASE 7 GATE: PASS
+----- exit=0 -----
+
+=========================================================================
+  RUN   : phases/phase7c-archive-fix.sh
+  AT    : 2026-08-09 22:44:33 KST
+=========================================================================
+>>> evidence file: /evidence/phase7-bonus.txt
+[NOTE] [결함 2건 발견 및 수정 — gate 가 통과시킨 진짜 버그]
+Phase 7 gate 는 PASS 였지만 실제로는 압축이 한 번도 일어나지 않았다.
+gate 가 '종료코드 0' 과 '디렉토리 존재' 만 확인하고 '실제로 옮겨졌는가' 를
+확인하지 않았기 때문이다. 결과 상태를 검사하지 않는 gate 는 통과 도장에 불과하다.
+
+(1) find 글롭이 로테이션 산출물을 못 잡음
+    증상 : 10일 전으로 조작한 monitor.log.1 / .2 가 있는데도 '대상 없음'.
+    원인 : -name '*.log' 는 monitor.log.1 에 매치되지 않는다.
+           로테이션 산출물은 .1 .2 로 끝나기 때문이다.
+           요구사항 문구('*.log 중 7일 경과')를 글자 그대로 옮긴 결과,
+           크기 기반 로테이션과 시간 기반 보존 정책이 서로 연결되지 않았다.
+    수정 : \( -name '*.log' -o -name '*.log.[0-9]*' \) 로 확장.
+
+(2) 환경 변수 오버라이드가 먹지 않음
+    증상 : AGENT_LOG_DIR=/var/log/does-not-exist 로 실행했는데
+           출력에는 source: /var/log/agent-app 가 찍혔다.
+    원인 : (set -a; . /etc/agent-app.env; set +a) 가 호출자가 준 값을
+           파일 값으로 덮어썼다. 파일이 항상 이기는 구조였다.
+    수정 : load_env_defaults() 로 교체. 이미 설정된 변수는 건너뛰고
+           비어 있는 것만 파일 값으로 채운다. 명시적 지정이 항상 이긴다.
+    영향 : monitor.sh / report.sh 도 같은 패턴이었으므로 함께 수정했다.
+--- [7c-1] 수정된 스크립트 재배치 ---
+total 28
+-rwxr-x---+ 1 agent-dev agent-core  7973 Aug  9 22:44 archive_logs.sh
+-rwxr-x---+ 1 agent-dev agent-core 10990 Aug  9 22:44 monitor.sh
+-rwxr-x---+ 1 agent-dev agent-core  5619 Aug  9 22:44 report.sh
+--- [7c-2] 수정 (2) 검증: 환경 변수 오버라이드가 이제 먹는가 ---
+====== LOG ARCHIVE / RETENTION ======
+source  : /var/log/does-not-exist
+archive : /var/log/monitor/agent-app/archive
+policy  : 7일 경과 압축 → 아카이브 이동, 30일 경과 아카이브 삭제
+
+[WARNING] 로그 디렉토리가 없습니다: /var/log/does-not-exist
+(exit=0)
+[NOTE] source 줄이 /var/log/does-not-exist 로 찍혀야 한다.
+그리고 없는 디렉토리이므로 경고 후 exit 0 으로 안전 종료해야 한다.
+
+--- [7c-3] 검증용 오래된 로그 생성 ---
+total 88
+-rw-rw----+ 1 agent-admin agent-core    12 2026-07-20 legacy.log
+-rw-rw----+ 1 agent-admin agent-core  1644 2026-08-09 monitor.log
+-rw-rw----+ 1 agent-admin agent-core    60 2026-07-30 monitor.log.1
+-rw-rw----+ 1 agent-admin agent-core    60 2026-07-30 monitor.log.2
+-rw-rw----+ 1 agent-admin agent-core    60 2026-08-06 monitor.log.3
+[NOTE] 대상 예상:
+  monitor.log.1 (10일) → 압축 대상 (수정 (1) 로 이제 잡혀야 함)
+  monitor.log.2 (10일) → 압축 대상
+  legacy.log    (20일) → 압축 대상 (원래도 *.log 로 잡히던 형태)
+  monitor.log.3 (3일)  → 제외 (7일 미만)
+  monitor.log   (활성) → 제외 (사용 중 파일 보호)
+--- [7c-4] dry-run ---
+====== LOG ARCHIVE / RETENTION ======
+source  : /var/log/agent-app
+archive : /var/log/monitor/agent-app/archive
+policy  : 7일 경과 압축 → 아카이브 이동, 30일 경과 아카이브 삭제
+mode    : DRY-RUN (실제 변경 없음)
+
+[STEP 1] 7일 경과 로그 압축 및 이동
+  - target: monitor.log.1
+         (dry-run) gzip -f /var/log/agent-app/monitor.log.1
+         (dry-run) mv -f /var/log/agent-app/monitor.log.1.gz /var/log/monitor/agent-app/archive/
+         -> /var/log/monitor/agent-app/archive/monitor.log.1.gz
+  - target: legacy.log
+         (dry-run) gzip -f /var/log/agent-app/legacy.log
+         (dry-run) mv -f /var/log/agent-app/legacy.log.gz /var/log/monitor/agent-app/archive/
+         -> /var/log/monitor/agent-app/archive/legacy.log.gz
+  - target: monitor.log.2
+         (dry-run) gzip -f /var/log/agent-app/monitor.log.2
+         (dry-run) mv -f /var/log/agent-app/monitor.log.2.gz /var/log/monitor/agent-app/archive/
+         -> /var/log/monitor/agent-app/archive/monitor.log.2.gz
+  압축·이동 완료: 3건
+
+[STEP 2] 30일 경과 아카이브 삭제
+  대상 없음 — 30일 이상 경과한 아카이브가 없습니다. (정상)
+
+====== SUMMARY ======
+compressed : 3
+deleted    : 0
+archive 현황:
+  파일 0개, 총 4.0K
+(exit=0)
+--- [7c-5] 실제 실행 ---
+====== LOG ARCHIVE / RETENTION ======
+source  : /var/log/agent-app
+archive : /var/log/monitor/agent-app/archive
+policy  : 7일 경과 압축 → 아카이브 이동, 30일 경과 아카이브 삭제
+
+[STEP 1] 7일 경과 로그 압축 및 이동
+  - target: monitor.log.1
+         -> /var/log/monitor/agent-app/archive/monitor.log.1.gz
+  - target: legacy.log
+         -> /var/log/monitor/agent-app/archive/legacy.log.gz
+  - target: monitor.log.2
+         -> /var/log/monitor/agent-app/archive/monitor.log.2.gz
+  압축·이동 완료: 3건
+
+[STEP 2] 30일 경과 아카이브 삭제
+  대상 없음 — 30일 이상 경과한 아카이브가 없습니다. (정상)
+
+====== SUMMARY ======
+compressed : 3
+deleted    : 0
+archive 현황:
+  파일 3개, 총 16K
+(exit=0)
+--- [7c-6] 결과 확인 (이번엔 실제로 옮겨졌는가) ---
+--- 원본 디렉토리 ---
+total 76
+-rw-rw----+ 1 agent-admin agent-core  1644 2026-08-09 monitor.log
+-rw-rw----+ 1 agent-admin agent-core    60 2026-08-06 monitor.log.3
+
+--- 아카이브 디렉토리 ---
+total 12
+-rw-rw----+ 1 agent-admin agent-core 43 2026-07-20 legacy.log.gz
+-rw-rw----+ 1 agent-admin agent-core 87 2026-07-30 monitor.log.1.gz
+-rw-rw----+ 1 agent-admin agent-core 87 2026-07-30 monitor.log.2.gz
+--- [7c-7] 압축 내용 무결성 확인 ---
+--- legacy.log.gz ---
+old app log
+--- monitor.log.1.gz ---
+[2026-07-30 10:00:00] PID:1 CPU:5.0% MEM:5.0% DISK_USED:20%
+--- monitor.log.2.gz ---
+[2026-07-29 10:00:00] PID:1 CPU:6.0% MEM:6.0% DISK_USED:20%
+[NOTE] 압축본을 풀었을 때 원본 내용이 그대로 나와야 한다.
+아카이브는 '보관'이 목적이므로 나중에 읽을 수 있어야 의미가 있다.
+
+--- [7c-8] 30일 경과 아카이브 삭제 ---
+total 12
+-rw-rw----+ 1 agent-admin agent-core 43 2026-07-20 legacy.log.gz
+-rw-rw----+ 1 agent-admin agent-core 87 2026-06-30 monitor.log.1.gz
+-rw-rw----+ 1 agent-admin agent-core 87 2026-07-30 monitor.log.2.gz
+[STEP 2] 30일 경과 아카이브 삭제
+  - delete: monitor.log.1.gz
+  삭제 완료: 1건
+
+====== SUMMARY ======
+compressed : 0
+deleted    : 1
+archive 현황:
+  파일 2개, 총 12K
+(exit=0)
+total 8
+-rw-rw----+ 1 agent-admin agent-core 43 2026-07-20 legacy.log.gz
+-rw-rw----+ 1 agent-admin agent-core 87 2026-07-30 monitor.log.2.gz
+[NOTE] 40일로 조작한 monitor.log.1.gz 만 사라지고
+monitor.log.2.gz / legacy.log.gz 는 남아야 한다.
+--- [7c-9] report.sh 재확인 (환경 로드 방식 변경 영향 없음) ---
+    ====== STATISTICS REPORT ======
+      source : /var/log/agent-app/monitor.log
+
+      [CPU]
+        Average : 9.5%
+        Maximum : 52.0% at 2026-08-09 22:36:24
+        Minimum : 0.8% at 2026-08-09 22:35:18
+      [Memory]
+        Average : 9.1%
+        Maximum : 12.8% at 2026-08-09 22:43:02
+        Minimum : 8.8% at 2026-08-09 22:35:14
+      [Disk]
+        Average : 25.0%
+        Maximum : 25.0% at 2026-08-09 22:30:19
+        Minimum : 25.0% at 2026-08-09 22:30:19
+      [Samples]
+        Data Points: 26 samples
+        Range      : 2026-08-09 22:30:19 ~ 2026-08-09 22:44:02
+(exit=0)
+--- [7c-10] monitor.sh 재확인 (환경 로드 방식 변경 영향 없음) ---
+[RESOURCE MONITORING]
+CPU Usage  : 2.3%
+MEM Usage  : 9.0%
+DISK Used  : 25%
+
+[INFO] All resources within thresholds
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+(exit=0)
+--- [7c-11] 정리 ---
+/var/log/agent-app/:
+total 72
+-rw-rw----+ 1 agent-admin agent-core 54021 Aug  9 22:44 agent_app.log
+-rw-rw----+ 1 agent-admin agent-core  4999 Aug  9 22:44 cron.out
+-rw-rw----+ 1 agent-admin agent-core  1707 Aug  9 22:44 monitor.log
+
+/var/log/monitor/agent-app/archive/:
+total 0
+
+=== Phase 7 gate 재검증 (결과 상태까지 확인하는 강화판) ===
+PHASE 7 GATE: PASS
+----- exit=0 -----
+
+=========================================================================
+  RUN   : snapshot.sh
+  AT    : 2026-08-09 22:45:45 KST
+=========================================================================
+=== 설정 파일 스냅샷 ===
+  saved: sshd_config.d-99-agent.conf  <- /etc/ssh/sshd_config.d/99-agent.conf
+  saved: agent-app.env  <- /etc/agent-app.env
+  saved: profile.d-agent-app.sh  <- /etc/profile.d/agent-app.sh
+  saved: ufw.conf  <- /etc/ufw/ufw.conf
+
+=== 명령 출력 스냅샷 ===
+  saved: sshd-effective-config.txt  <- $ bash -c sshd -T | grep -E '^(port|permitrootlogin|passwordauthentication) '
+  saved: ufw-status.txt  <- $ ufw status verbose
+  saved: listening-ports.txt  <- $ ss -tulnp
+  saved: accounts.txt  <- $ bash -c for u in agent-admin agent-dev agent-test; do id "$u"; done
+  saved: groups.txt  <- $ getent group agent-common agent-core
+  saved: crontab-agent-admin.txt  <- $ crontab -l -u agent-admin
+  saved: directory-perms.txt  <- $ bash -c ls -ld /home/agent-admin /home/agent-admin/agent-app /home/agent-admin/agent-app/bin /home/agent-admin/agent-app/upload_files /home/agent-admin/agent-app/api_keys /var/log/agent-app /var/log/monitor/agent-app/archive
+  saved: getfacl-all.txt  <- $ bash -c for d in /home/agent-admin /home/agent-admin/agent-app /home/agent-admin/agent-app/bin /home/agent-admin/agent-app/upload_files /home/agent-admin/agent-app/api_keys /var/log/agent-app /var/log/monitor/agent-app/archive; do echo "### $d"; getfacl -p "$d" 2>/dev/null; echo; done
+  saved: script-perms.txt  <- $ ls -l /home/agent-admin/agent-app/bin
+
+스냅샷 위치: /evidence/snapshots
+total 52
+-rw-r--r-- 1 root root  402 Aug  9 22:45 accounts.txt
+-rw-r--r-- 1 root root  721 Aug  9 22:45 agent-app.env
+-rw-r--r-- 1 root root  300 Aug  9 22:45 crontab-agent-admin.txt
+-rw-r--r-- 1 root root  879 Aug  9 22:45 directory-perms.txt
+-rw-r--r-- 1 root root 2225 Aug  9 22:45 getfacl-all.txt
+-rw-r--r-- 1 root root  175 Aug  9 22:45 groups.txt
+-rw-r--r-- 1 root root  625 Aug  9 22:45 listening-ports.txt
+-rw-r--r-- 1 root root  302 Aug  9 22:45 profile.d-agent-app.sh
+-rw-r--r-- 1 root root  291 Aug  9 22:45 script-perms.txt
+-rw-r--r-- 1 root root  178 Aug  9 22:45 sshd-effective-config.txt
+-rw-r--r-- 1 root root  481 Aug  9 22:45 sshd_config.d-99-agent.conf
+-rw-r--r-- 1 root root  564 Aug  9 22:45 ufw-status.txt
+-rw-r--r-- 1 root root  313 Aug  9 22:45 ufw.conf
+----- exit=0 -----
+
+=========================================================================
+  RUN   : collect-evidence.sh
+  AT    : 2026-08-09 22:45:45 KST
+=========================================================================
+
+=== 증거 1 — SSH 포트 20022 변경 및 Root 원격 접속 차단 ===
+port 20022
+permitrootlogin no
+# b1-1 미션 기본 보안 설정
+# 1) 포트 변경: 22 를 노리는 자동화 스캔의 접속 시도를 걷어낸다.
+#    포트 변경 자체는 '방어'가 아니라 '잡음 제거'다. 진짜 방어는 아래 항목들이다.
+Port 20022
+
+# 2) root 원격 로그인 차단: 공격자가 이미 아는 계정명(root)으로 들어올 길을 막는다.
+#    운영은 일반 계정 로그인 + sudo 로 하며, 이때 조작 주체가 로그에 남는다.
+PermitRootLogin no
+tcp   LISTEN 0      128          0.0.0.0:20022      0.0.0.0:*          
+tcp   LISTEN 0      128             [::]:20022         [::]:*          
+
+=== 증거 2 — 방화벽 활성화 및 20022/15034 만 허용 ===
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), deny (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+20022/tcp                  ALLOW IN    Anywhere                   # SSH
+15034/tcp                  ALLOW IN    Anywhere                   # AGENT APP
+20022/tcp (v6)             ALLOW IN    Anywhere (v6)              # SSH
+15034/tcp (v6)             ALLOW IN    Anywhere (v6)              # AGENT APP
+ENABLED=yes
+
+=== 증거 3 — 계정/그룹 생성 (agent-admin/dev/test, agent-common/core) ===
+uid=1001(agent-admin) gid=1003(agent-admin) groups=1003(agent-admin),1001(agent-common),1002(agent-core)
+uid=1002(agent-dev) gid=1004(agent-dev) groups=1004(agent-dev),1001(agent-common),1002(agent-core)
+uid=1003(agent-test) gid=1005(agent-test) groups=1005(agent-test),1001(agent-common)
+agent-common:x:1001:agent-admin,agent-dev,agent-test
+agent-core:x:1002:agent-admin,agent-dev
+
+=== 증거 4 — 디렉토리 구조 및 권한 (ACL 포함) ===
+drwxr-x---+ 3 agent-admin agent-admin  4096 Aug  9 22:21 /home/agent-admin
+drwxr-s---+ 5 agent-admin agent-core   4096 Aug  9 22:27 /home/agent-admin/agent-app
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:27 /home/agent-admin/agent-app/api_keys
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:41 /home/agent-admin/agent-app/bin
+drwxrws---+ 2 agent-admin agent-common 4096 Aug  9 22:22 /home/agent-admin/agent-app/upload_files
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:44 /var/log/agent-app
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:44 /var/log/monitor/agent-app/archive
+### /home/agent-admin
+user::rwx
+user:agent-dev:--x
+group::r-x
+group:agent-common:--x
+mask::r-x
+other::---
+
+
+### /home/agent-admin/agent-app
+user::rwx
+group::r-x
+group:agent-common:--x
+mask::r-x
+other::---
+
+
+### /home/agent-admin/agent-app/upload_files
+user::rwx
+group::rwx
+group:agent-common:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-common:rwx
+default:mask::rwx
+default:other::---
+
+
+### /home/agent-admin/agent-app/api_keys
+user::rwx
+group::rwx
+group:agent-core:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-core:rwx
+default:mask::rwx
+default:other::---
+
+
+### /var/log/agent-app
+user::rwx
+group::rwx
+group:agent-core:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-core:rwx
+default:mask::rwx
+default:other::---
+  [권한 격리 실증]
+OK: agent-test 는 공유 영역에 쓸 수 있다
+ls: cannot open directory '/home/agent-admin/agent-app/api_keys': Permission denied
+[PASS (차단 확인됨)]
+ls: cannot open directory '/var/log/agent-app': Permission denied
+[PASS (차단 확인됨)]
+ls: cannot open directory '/home/agent-admin': Permission denied
+[PASS (차단 확인됨)]
+
+=== 증거 5 — 앱 Boot Sequence 5단계 [OK] 및 Agent READY ===
+   ... Port 15034 is available.
+[5/5] Verifying Log Permission            [OK]
+   ... Log directory is writable: /var/log/agent-app
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+>>> Starting Agent Boot Sequence...
+[1/5] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=1001)
+[2/5] Verifying Environment Variables     [OK]
+   ... All required Envs correct
+[3/5] Checking Required Files             [OK]
+   ... Verified 'secret.key' with correct key string.
+[4/5] Checking Port Availability          [OK]
+   ... Port 15034 is available.
+[5/5] Verifying Log Permission            [OK]
+   ... Log directory is writable: /var/log/agent-app
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+   1807 agent-a+ ./agent-app-linux-arm64
+   1809 agent-a+ ./agent-app-linux-arm64
+tcp   LISTEN 0      1            0.0.0.0:15034      0.0.0.0:*          
+
+=== 증거 6 — monitor.sh 실행 결과 (프로세스/포트/리소스/경고) ===
+-rwxr-x---+ 1 agent-dev agent-core 10990 Aug  9 22:44 /home/agent-admin/agent-app/bin/monitor.sh
+====== SYSTEM MONITOR RESULT ======
+
+[HEALTH CHECK]
+Checking process 'agent-app-linux-arm[6]4'... [OK] (PID: 1807)
+Checking port 15034... [OK]
+
+[SECURITY CHECK]
+Checking firewall (ufw)... [OK] (enabled)
+
+[RESOURCE MONITORING]
+CPU Usage  : 2.0%
+MEM Usage  : 9.0%
+DISK Used  : 25%
+
+[INFO] All resources within thresholds
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+(exit=0)
+
+=== 증거 7 — /var/log/agent-app/monitor.log 누적 기록 (최근 라인) ===
+총 라인 수: 29
+[2026-08-09 22:38:02] PID:1807 CPU:1.5% MEM:9.0% DISK_USED:25%
+[2026-08-09 22:39:02] PID:1807 CPU:1.5% MEM:8.9% DISK_USED:25%
+[2026-08-09 22:40:02] PID:1807 CPU:1.6% MEM:8.9% DISK_USED:25%
+[2026-08-09 22:41:02] PID:1807 CPU:2.9% MEM:9.0% DISK_USED:25%
+[2026-08-09 22:42:02] PID:1807 CPU:1.6% MEM:8.9% DISK_USED:25%
+[2026-08-09 22:43:02] PID:1807 CPU:7.1% MEM:12.8% DISK_USED:25%
+[2026-08-09 22:44:02] PID:1807 CPU:1.2% MEM:8.9% DISK_USED:25%
+[2026-08-09 22:44:34] PID:1807 CPU:2.3% MEM:9.0% DISK_USED:25%
+[2026-08-09 22:45:02] PID:1807 CPU:3.0% MEM:9.0% DISK_USED:25%
+[2026-08-09 22:45:46] PID:1807 CPU:2.0% MEM:9.0% DISK_USED:25%
+
+=== 증거 8 — crontab 매분 실행 등록 및 자동 실행 확인 ===
+# b1-1 시스템 관제 자동화
+# monitor.sh 를 매분 실행하고, cron 환경에서만 발생하는 오류를 cron.out 에 남긴다.
+* * * * * /home/agent-admin/agent-app/bin/monitor.sh >> /var/log/agent-app/cron.out 2>&1
+     19 root     cron
+  기준 시각 2026-08-09 22:45:46 / 라인 수 29 — 70초 대기 후 재측정
+자동 누적 검증
+  기준 : 2026-08-09 22:45:46  라인 수 29
+  측정 : 2026-08-09 22:46:57  라인 수 30
+  증가 : $(( 30 - 29 )) 줄
+  판정 : PASS (cron 이 스스로 실행했다)
+[2026-08-09 22:45:02] PID:1807 CPU:3.0% MEM:9.0% DISK_USED:25%
+[2026-08-09 22:45:46] PID:1807 CPU:2.0% MEM:9.0% DISK_USED:25%
+[2026-08-09 22:46:02] PID:1807 CPU:1.7% MEM:8.9% DISK_USED:25%
+
+=== 보너스 — report.sh 통계 리포트 ===
+    ====== STATISTICS REPORT ======
+      source : /var/log/agent-app/monitor.log
+
+      [CPU]
+        Average : 8.6%
+        Maximum : 52.0% at 2026-08-09 22:36:24
+        Minimum : 0.8% at 2026-08-09 22:35:18
+      [Memory]
+        Average : 9.0%
+        Maximum : 12.8% at 2026-08-09 22:43:02
+        Minimum : 8.8% at 2026-08-09 22:35:14
+      [Disk]
+        Average : 25.0%
+        Maximum : 25.0% at 2026-08-09 22:30:19
+        Minimum : 25.0% at 2026-08-09 22:30:19
+      [Samples]
+        Data Points: 30 samples
+        Range      : 2026-08-09 22:30:19 ~ 2026-08-09 22:46:02
+
+=== 보너스 — 임계값 경고 실제 발생 기록 (cron 자동 실행 중) ===
+[RESOURCE MONITORING]
+CPU Usage  : 41.1%
+MEM Usage  : 8.9%
+DISK Used  : 25%
+
+[WARNING] CPU threshold exceeded (41.1% > 20%)
+--
+[RESOURCE MONITORING]
+CPU Usage  : 7.1%
+MEM Usage  : 12.8%
+DISK Used  : 25%
+
+[WARNING] MEM threshold exceeded (12.8% > 10%)
+
+=== 보너스 — 로그 보존 정책 (archive_logs.sh) ===
+====== LOG ARCHIVE / RETENTION ======
+source  : /var/log/agent-app
+archive : /var/log/monitor/agent-app/archive
+policy  : 7일 경과 압축 → 아카이브 이동, 30일 경과 아카이브 삭제
+
+[STEP 1] 7일 경과 로그 압축 및 이동
+  대상 없음 — 7일 이상 경과한 로그가 없습니다. (정상)
+
+[STEP 2] 30일 경과 아카이브 삭제
+  대상 없음 — 30일 이상 경과한 아카이브가 없습니다. (정상)
+
+====== SUMMARY ======
+compressed : 0
+deleted    : 0
+archive 현황:
+  파일 0개, 총 4.0K
+(exit=0)
+
+완료: /evidence/FINAL-VERIFICATION.txt
+381 /evidence/FINAL-VERIFICATION.txt
+----- exit=0 -----
+
+=========================================================================
+  RUN   : collect-evidence.sh
+  AT    : 2026-08-09 22:53:43 KST
+=========================================================================
+
+=== 증거 1 — SSH 포트 20022 변경 및 Root 원격 접속 차단 ===
+port 20022
+permitrootlogin no
+# b1-1 미션 기본 보안 설정
+# 1) 포트 변경: 22 를 노리는 자동화 스캔의 접속 시도를 걷어낸다.
+#    포트 변경 자체는 '방어'가 아니라 '잡음 제거'다. 진짜 방어는 아래 항목들이다.
+Port 20022
+
+# 2) root 원격 로그인 차단: 공격자가 이미 아는 계정명(root)으로 들어올 길을 막는다.
+#    운영은 일반 계정 로그인 + sudo 로 하며, 이때 조작 주체가 로그에 남는다.
+PermitRootLogin no
+tcp   LISTEN 0      128          0.0.0.0:20022      0.0.0.0:*          
+tcp   LISTEN 0      128             [::]:20022         [::]:*          
+
+=== 증거 2 — 방화벽 활성화 및 20022/15034 만 허용 ===
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), deny (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+20022/tcp                  ALLOW IN    Anywhere                   # SSH
+15034/tcp                  ALLOW IN    Anywhere                   # AGENT APP
+20022/tcp (v6)             ALLOW IN    Anywhere (v6)              # SSH
+15034/tcp (v6)             ALLOW IN    Anywhere (v6)              # AGENT APP
+ENABLED=yes
+
+=== 증거 3 — 계정/그룹 생성 (agent-admin/dev/test, agent-common/core) ===
+uid=1001(agent-admin) gid=1003(agent-admin) groups=1003(agent-admin),1001(agent-common),1002(agent-core)
+uid=1002(agent-dev) gid=1004(agent-dev) groups=1004(agent-dev),1001(agent-common),1002(agent-core)
+uid=1003(agent-test) gid=1005(agent-test) groups=1005(agent-test),1001(agent-common)
+agent-common:x:1001:agent-admin,agent-dev,agent-test
+agent-core:x:1002:agent-admin,agent-dev
+
+=== 증거 4 — 디렉토리 구조 및 권한 (ACL 포함) ===
+drwxr-x---+ 3 agent-admin agent-admin  4096 Aug  9 22:21 /home/agent-admin
+drwxr-s---+ 5 agent-admin agent-core   4096 Aug  9 22:27 /home/agent-admin/agent-app
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:27 /home/agent-admin/agent-app/api_keys
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:41 /home/agent-admin/agent-app/bin
+drwxrws---+ 2 agent-admin agent-common 4096 Aug  9 22:45 /home/agent-admin/agent-app/upload_files
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:44 /var/log/agent-app
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:44 /var/log/monitor/agent-app/archive
+### /home/agent-admin
+user::rwx
+user:agent-dev:--x
+group::r-x
+group:agent-common:--x
+mask::r-x
+other::---
+
+
+### /home/agent-admin/agent-app
+user::rwx
+group::r-x
+group:agent-common:--x
+mask::r-x
+other::---
+
+
+### /home/agent-admin/agent-app/upload_files
+user::rwx
+group::rwx
+group:agent-common:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-common:rwx
+default:mask::rwx
+default:other::---
+
+
+### /home/agent-admin/agent-app/api_keys
+user::rwx
+group::rwx
+group:agent-core:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-core:rwx
+default:mask::rwx
+default:other::---
+
+
+### /var/log/agent-app
+user::rwx
+group::rwx
+group:agent-core:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-core:rwx
+default:mask::rwx
+default:other::---
+  [권한 격리 실증]
+OK: agent-test 는 공유 영역에 쓸 수 있다
+ls: cannot open directory '/home/agent-admin/agent-app/api_keys': Permission denied
+[PASS (차단 확인됨)]
+ls: cannot open directory '/var/log/agent-app': Permission denied
+[PASS (차단 확인됨)]
+ls: cannot open directory '/home/agent-admin': Permission denied
+[PASS (차단 확인됨)]
+
+=== 증거 5 — 앱 Boot Sequence 5단계 [OK] 및 Agent READY ===
+   ... Port 15034 is available.
+[5/5] Verifying Log Permission            [OK]
+   ... Log directory is writable: /var/log/agent-app
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+>>> Starting Agent Boot Sequence...
+[1/5] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=1001)
+[2/5] Verifying Environment Variables     [OK]
+   ... All required Envs correct
+[3/5] Checking Required Files             [OK]
+   ... Verified 'secret.key' with correct key string.
+[4/5] Checking Port Availability          [OK]
+   ... Port 15034 is available.
+[5/5] Verifying Log Permission            [OK]
+   ... Log directory is writable: /var/log/agent-app
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+   1807 agent-a+ ./agent-app-linux-arm64
+   1809 agent-a+ ./agent-app-linux-arm64
+tcp   LISTEN 0      1            0.0.0.0:15034      0.0.0.0:*          
+
+=== 증거 6 — monitor.sh 실행 결과 (프로세스/포트/리소스/경고) ===
+-rwxr-x---+ 1 agent-dev agent-core 10990 Aug  9 22:44 /home/agent-admin/agent-app/bin/monitor.sh
+====== SYSTEM MONITOR RESULT ======
+
+[HEALTH CHECK]
+Checking process 'agent-app-linux-arm[6]4'... [OK] (PID: 1807)
+Checking port 15034... [OK]
+
+[SECURITY CHECK]
+Checking firewall (ufw)... [OK] (enabled)
+
+[RESOURCE MONITORING]
+CPU Usage  : 0.9%
+MEM Usage  : 8.9%
+DISK Used  : 25%
+
+[INFO] All resources within thresholds
+
+[INFO] Log appended: /var/log/agent-app/monitor.log
+(exit=0)
+
+=== 증거 7 — /var/log/agent-app/monitor.log 누적 기록 (최근 라인) ===
+총 라인 수: 38
+[2026-08-09 22:45:46] PID:1807 CPU:2.0% MEM:9.0% DISK_USED:25%
+[2026-08-09 22:46:02] PID:1807 CPU:1.7% MEM:8.9% DISK_USED:25%
+[2026-08-09 22:47:02] PID:1807 CPU:2.3% MEM:8.9% DISK_USED:25%
+[2026-08-09 22:48:02] PID:1807 CPU:1.7% MEM:9.0% DISK_USED:25%
+[2026-08-09 22:49:02] PID:1807 CPU:8.5% MEM:12.5% DISK_USED:25%
+[2026-08-09 22:50:02] PID:1807 CPU:2.3% MEM:9.0% DISK_USED:25%
+[2026-08-09 22:51:02] PID:1807 CPU:1.4% MEM:8.9% DISK_USED:25%
+[2026-08-09 22:52:02] PID:1807 CPU:1.4% MEM:8.9% DISK_USED:25%
+[2026-08-09 22:53:02] PID:1807 CPU:0.8% MEM:9.0% DISK_USED:25%
+[2026-08-09 22:53:44] PID:1807 CPU:0.9% MEM:8.9% DISK_USED:25%
+
+=== 증거 8 — crontab 매분 실행 등록 및 자동 실행 확인 ===
+# b1-1 시스템 관제 자동화
+# monitor.sh 를 매분 실행하고, cron 환경에서만 발생하는 오류를 cron.out 에 남긴다.
+* * * * * /home/agent-admin/agent-app/bin/monitor.sh >> /var/log/agent-app/cron.out 2>&1
+     19 root     cron
+  기준 시각 2026-08-09 22:53:44 / 라인 수 38 — 70초 대기 후 재측정
+자동 누적 검증
+  기준 : 2026-08-09 22:53:44  라인 수 38
+  측정 : 2026-08-09 22:54:54  라인 수 39
+  증가 : 1 줄
+  판정 : PASS (cron 이 스스로 실행했다)
+[2026-08-09 22:53:02] PID:1807 CPU:0.8% MEM:9.0% DISK_USED:25%
+[2026-08-09 22:53:44] PID:1807 CPU:0.9% MEM:8.9% DISK_USED:25%
+[2026-08-09 22:54:02] PID:1807 CPU:0.9% MEM:8.8% DISK_USED:25%
+
+=== 보너스 — report.sh 통계 리포트 ===
+    ====== STATISTICS REPORT ======
+      source : /var/log/agent-app/monitor.log
+
+      [CPU]
+        Average : 7.1%
+        Maximum : 52.0% at 2026-08-09 22:36:24
+        Minimum : 0.8% at 2026-08-09 22:35:18
+      [Memory]
+        Average : 9.1%
+        Maximum : 12.8% at 2026-08-09 22:43:02
+        Minimum : 8.8% at 2026-08-09 22:35:14
+      [Disk]
+        Average : 25.0%
+        Maximum : 25.0% at 2026-08-09 22:30:19
+        Minimum : 25.0% at 2026-08-09 22:30:19
+      [Samples]
+        Data Points: 39 samples
+        Range      : 2026-08-09 22:30:19 ~ 2026-08-09 22:54:02
+
+=== 보너스 — 임계값 경고 실제 발생 기록 (cron 자동 실행 중) ===
+[RESOURCE MONITORING]
+CPU Usage  : 41.1%
+MEM Usage  : 8.9%
+DISK Used  : 25%
+
+[WARNING] CPU threshold exceeded (41.1% > 20%)
+--
+[RESOURCE MONITORING]
+CPU Usage  : 7.1%
+MEM Usage  : 12.8%
+DISK Used  : 25%
+
+[WARNING] MEM threshold exceeded (12.8% > 10%)
+--
+[RESOURCE MONITORING]
+CPU Usage  : 8.5%
+MEM Usage  : 12.5%
+DISK Used  : 25%
+
+[WARNING] MEM threshold exceeded (12.5% > 10%)
+
+=== 보너스 — 로그 보존 정책 (archive_logs.sh) ===
+====== LOG ARCHIVE / RETENTION ======
+source  : /var/log/agent-app
+archive : /var/log/monitor/agent-app/archive
+policy  : 7일 경과 압축 → 아카이브 이동, 30일 경과 아카이브 삭제
+
+[STEP 1] 7일 경과 로그 압축 및 이동
+  대상 없음 — 7일 이상 경과한 로그가 없습니다. (정상)
+
+[STEP 2] 30일 경과 아카이브 삭제
+  대상 없음 — 30일 이상 경과한 아카이브가 없습니다. (정상)
+
+====== SUMMARY ======
+compressed : 0
+deleted    : 0
+archive 현황:
+  파일 0개, 총 4.0K
+(exit=0)
+
+완료: /evidence/FINAL-VERIFICATION.txt
+388 /evidence/FINAL-VERIFICATION.txt
+----- exit=0 -----

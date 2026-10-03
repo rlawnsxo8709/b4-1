@@ -1,0 +1,83 @@
+============================================================
+ EVIDENCE : phase0-env
+ OPENED   : 2026-08-09 22:16:31 KST
+ HOST     : agent-lab    USER: root
+============================================================
+
+### 2026-08-09 22:16:31  [NOTE]
+실습 환경: Docker 비특권 컨테이너. --privileged 없음, 호스트 cgroup 마운트 없음.
+cap-add 는 ufw/iptables 에 필요한 NET_ADMIN, NET_RAW 두 개뿐.
+systemd 를 설치하지 않고 sshd/cron 을 entrypoint 에서 직접 기동하는 구성.
+
+### 2026-08-09 22:16:31
+$ uname -a
+Linux agent-lab 6.14.0-1015-nvidia #15-Ubuntu SMP PREEMPT_DYNAMIC Tue Nov 25 18:02:16 UTC 2025 aarch64 aarch64 aarch64 GNU/Linux
+--- exit=0 ---
+
+### 2026-08-09 22:16:31
+$ cat /etc/os-release | head -3
+PRETTY_NAME="Ubuntu 24.04.4 LTS"
+NAME="Ubuntu"
+VERSION_ID="24.04"
+--- exit=0 ---
+
+### 2026-08-09 22:16:31
+$ date +%F %T %Z
+2026-08-09 22:16:31 KST
+--- exit=0 ---
+
+### 2026-08-09 22:16:31
+$ ps -p 1 -o pid,comm,args --no-headers
+      1 docker-init     /sbin/docker-init -- /usr/local/sbin/entrypoint.sh
+--- exit=0 ---
+
+### 2026-08-09 22:16:31
+$ ps -eo pid,comm --no-headers | grep -E "sshd|cron"
+     11 sshd
+     19 cron
+--- exit=0 ---
+
+### 2026-08-09 22:16:31
+$ for t in ufw cron sshd setfacl getfacl ss pgrep df awk gzip find script crontab; do
+         p=$(command -v "$t" 2>/dev/null || echo "MISSING")
+         printf "%-10s %s\n" "$t" "$p"
+       done
+ufw        /usr/sbin/ufw
+cron       /usr/sbin/cron
+sshd       /usr/sbin/sshd
+setfacl    /usr/bin/setfacl
+getfacl    /usr/bin/getfacl
+ss         /usr/bin/ss
+pgrep      /usr/bin/pgrep
+df         /usr/bin/df
+awk        /usr/bin/awk
+gzip       /usr/bin/gzip
+find       /usr/bin/find
+script     /usr/bin/script
+crontab    /usr/bin/crontab
+--- exit=0 ---
+
+### 2026-08-09 22:16:31
+$ ls -l /opt/agent-app-linux-* && file /opt/agent-app-linux-* 2>/dev/null || true
+-rwxr-xr-x 1 ubuntu ubuntu 7537848 May 18 17:06 /opt/agent-app-linux-arm64
+--- exit=0 ---
+
+### 2026-08-09 22:16:31
+$ touch /evidence/.writetest && echo "writable: OK" && rm -f /evidence/.writetest
+writable: OK
+--- exit=0 ---
+
+### 2026-08-09 22:16:31
+$ 
+fail=0
+[ "$(uname -m)" = "aarch64" ] || { echo "NG: arch"; fail=1; }
+ps -p 1 -o comm= | grep -qv systemd || { echo "NG: pid1 is systemd"; fail=1; }
+pgrep -x sshd >/dev/null || { echo "NG: sshd not running"; fail=1; }
+pgrep -x cron >/dev/null || { echo "NG: cron not running"; fail=1; }
+[ -x /opt/agent-app-linux-arm64 ] || { echo "NG: app binary"; fail=1; }
+[ -w /evidence ] || { echo "NG: evidence not writable"; fail=1; }
+[ $fail -eq 0 ] && echo "PHASE 0 GATE: PASS" || echo "PHASE 0 GATE: FAIL"
+exit $fail
+PHASE 0 GATE: PASS
+--- exit=0 ---
+

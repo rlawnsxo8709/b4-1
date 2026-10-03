@@ -1,0 +1,7 @@
+# 생성: 2026-08-10 00:18:54 KST
+# 명령: ls -l /home/agent-admin/agent-app/bin
+
+total 28
+-rwxr-x---+ 1 agent-dev agent-core  7973 Aug  9 22:44 archive_logs.sh
+-rwxr-x---+ 1 agent-dev agent-core 10990 Aug  9 22:44 monitor.sh
+-rwxr-x---+ 1 agent-dev agent-core  5619 Aug  9 22:44 report.sh
