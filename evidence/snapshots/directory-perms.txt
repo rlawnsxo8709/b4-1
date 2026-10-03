@@ -1,0 +1,10 @@
+# 생성: 2026-08-10 00:18:54 KST
+# 명령: bash -c ls -ld /home/agent-admin /home/agent-admin/agent-app /home/agent-admin/agent-app/bin /home/agent-admin/agent-app/upload_files /home/agent-admin/agent-app/api_keys /var/log/agent-app /var/log/monitor/agent-app/archive
+
+drwxr-x---+ 3 agent-admin agent-admin  4096 Aug  9 22:21 /home/agent-admin
+drwxr-s---+ 5 agent-admin agent-core   4096 Aug  9 22:27 /home/agent-admin/agent-app
+drwxrws---+ 2 agent-admin agent-core   4096 Aug 10 00:12 /home/agent-admin/agent-app/api_keys
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:41 /home/agent-admin/agent-app/bin
+drwxrws---+ 2 agent-admin agent-common 4096 Aug  9 22:53 /home/agent-admin/agent-app/upload_files
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:44 /var/log/agent-app
+drwxrws---+ 2 agent-admin agent-core   4096 Aug  9 22:44 /var/log/monitor/agent-app/archive

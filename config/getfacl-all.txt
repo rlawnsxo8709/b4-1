@@ -1,0 +1,113 @@
+# 생성: 2026-08-10 00:18:54 KST
+# 명령: bash -c for d in /home/agent-admin /home/agent-admin/agent-app /home/agent-admin/agent-app/bin /home/agent-admin/agent-app/upload_files /home/agent-admin/agent-app/api_keys /var/log/agent-app /var/log/monitor/agent-app/archive; do echo "### $d"; getfacl -p "$d" 2>/dev/null; echo; done
+
+### /home/agent-admin
+# file: /home/agent-admin
+# owner: agent-admin
+# group: agent-admin
+user::rwx
+user:agent-dev:--x
+group::r-x
+group:agent-common:--x
+mask::r-x
+other::---
+
+
+### /home/agent-admin/agent-app
+# file: /home/agent-admin/agent-app
+# owner: agent-admin
+# group: agent-core
+# flags: -s-
+user::rwx
+group::r-x
+group:agent-common:--x
+mask::r-x
+other::---
+
+
+### /home/agent-admin/agent-app/bin
+# file: /home/agent-admin/agent-app/bin
+# owner: agent-admin
+# group: agent-core
+# flags: -s-
+user::rwx
+user:agent-dev:rwx
+group::r-x
+mask::rwx
+other::---
+default:user::rwx
+default:user:agent-dev:rwx
+default:group::r-x
+default:group:agent-core:r-x
+default:mask::rwx
+default:other::---
+
+
+### /home/agent-admin/agent-app/upload_files
+# file: /home/agent-admin/agent-app/upload_files
+# owner: agent-admin
+# group: agent-common
+# flags: -s-
+user::rwx
+group::rwx
+group:agent-common:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-common:rwx
+default:mask::rwx
+default:other::---
+
+
+### /home/agent-admin/agent-app/api_keys
+# file: /home/agent-admin/agent-app/api_keys
+# owner: agent-admin
+# group: agent-core
+# flags: -s-
+user::rwx
+group::rwx
+group:agent-core:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-core:rwx
+default:mask::rwx
+default:other::---
+
+
+### /var/log/agent-app
+# file: /var/log/agent-app
+# owner: agent-admin
+# group: agent-core
+# flags: -s-
+user::rwx
+group::rwx
+group:agent-core:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-core:rwx
+default:mask::rwx
+default:other::---
+
+
+### /var/log/monitor/agent-app/archive
+# file: /var/log/monitor/agent-app/archive
+# owner: agent-admin
+# group: agent-core
+# flags: -s-
+user::rwx
+group::rwx
+group:agent-core:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:group::rwx
+default:group:agent-core:rwx
+default:mask::rwx
+default:other::---
+
+

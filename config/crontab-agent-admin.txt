@@ -1,0 +1,6 @@
+# 생성: 2026-08-10 00:18:54 KST
+# 명령: crontab -l -u agent-admin
+
+# b1-1 시스템 관제 자동화
+# monitor.sh 를 매분 실행하고, cron 환경에서만 발생하는 오류를 cron.out 에 남긴다.
+* * * * * /home/agent-admin/agent-app/bin/monitor.sh >> /var/log/agent-app/cron.out 2>&1

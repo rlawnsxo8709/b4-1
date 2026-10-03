@@ -1,0 +1,166 @@
+============================================================
+ EVIDENCE : phase2-ufw
+ OPENED   : 2026-08-09 22:18:07 KST
+ HOST     : agent-lab    USER: root
+============================================================
+
+### 2026-08-09 22:18:07
+$ ufw status
+Status: inactive
+--- exit=0 ---
+
+### 2026-08-09 22:18:07  [NOTE]
+방화벽은 UFW 를 선택했다. 본 환경에 firewalld 는 없고,
+Ubuntu 계열 표준 도구가 UFW 이기 때문이다.
+규칙 적용 순서가 중요하다: allow 20022 를 '먼저' 넣고 enable 한다.
+반대로 하면 원격 세션이 끊겨 스스로 잠기는데(lockout), 실습 환경이라도
+이 순서를 습관으로 들여야 실제 서버에서 사고가 나지 않는다.
+
+### 2026-08-09 22:18:07
+$ ufw default deny incoming
+Default incoming policy changed to 'deny'
+(be sure to update your rules accordingly)
+--- exit=0 ---
+
+### 2026-08-09 22:18:07
+$ ufw default allow outgoing
+Default outgoing policy changed to 'allow'
+(be sure to update your rules accordingly)
+--- exit=0 ---
+
+### 2026-08-09 22:18:07
+$ ufw allow 20022/tcp comment SSH
+Rules updated
+Rules updated (v6)
+--- exit=0 ---
+
+### 2026-08-09 22:18:08
+$ ufw allow 15034/tcp comment AGENT APP
+Rules updated
+Rules updated (v6)
+--- exit=0 ---
+
+### 2026-08-09 22:18:08
+$ ufw --force enable
+Firewall is active and enabled on system startup
+--- exit=0 ---
+
+### 2026-08-09 22:18:08
+$ ufw status verbose
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), deny (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+20022/tcp                  ALLOW IN    Anywhere                   # SSH
+15034/tcp                  ALLOW IN    Anywhere                   # AGENT APP
+20022/tcp (v6)             ALLOW IN    Anywhere (v6)              # SSH
+15034/tcp (v6)             ALLOW IN    Anywhere (v6)              # AGENT APP
+--- exit=0 ---
+
+### 2026-08-09 22:18:08
+$ ufw status numbered
+Status: active
+
+     To                         Action      From
+     --                         ------      ----
+[ 1] 20022/tcp                  ALLOW IN    Anywhere                   # SSH
+[ 2] 15034/tcp                  ALLOW IN    Anywhere                   # AGENT APP
+[ 3] 20022/tcp (v6)             ALLOW IN    Anywhere (v6)              # SSH
+[ 4] 15034/tcp (v6)             ALLOW IN    Anywhere (v6)              # AGENT APP
+--- exit=0 ---
+
+### 2026-08-09 22:18:08
+$ grep -E "^ENABLED=" /etc/ufw/ufw.conf
+ENABLED=yes
+--- exit=0 ---
+
+### 2026-08-09 22:18:08  [NOTE]
+monitor.sh 는 비특권 계정(agent-admin)으로 cron 실행된다.
+그런데 'ufw status' 는 root 전용이라 일반 계정에서는 실패한다.
+따라서 방화벽 점검은 644 로 누구나 읽을 수 있는 /etc/ufw/ufw.conf 의
+ENABLED 값을 확인하는 방식으로 구현한다. sudo 권한을 추가로 주지 않고도
+점검이 가능하다는 점이 최소 권한 원칙에 부합한다.
+
+### 2026-08-09 22:18:08
+$ id -u nobody >/dev/null 2>&1 && su -s /bin/bash nobody -c "ufw status" 2>&1 | head -3; echo "(exit=$?)"
+ERROR: You need to be root to run this script
+(exit=0)
+--- exit=0 ---
+
+### 2026-08-09 22:18:08
+$ 
+fail=0
+ufw status | grep -q "Status: active" || { echo "NG: ufw not active"; fail=1; }
+ufw status | grep -q "20022/tcp"      || { echo "NG: 20022 rule missing"; fail=1; }
+ufw status | grep -q "15034/tcp"      || { echo "NG: 15034 rule missing"; fail=1; }
+# 허용 규칙이 정확히 이 둘 뿐인지 (v4/v6 각 1건씩 = 4행)
+n=$(ufw status | grep -cE "^(20022|15034)/tcp")
+t=$(ufw status | grep -cE "ALLOW IN")
+[ "$n" -eq "$t" ] || { echo "NG: 허용 규칙에 20022/15034 외 항목 존재 (allow=$t, expected=$n)"; fail=1; }
+grep -q "^ENABLED=yes" /etc/ufw/ufw.conf || { echo "NG: ufw.conf ENABLED"; fail=1; }
+[ $fail -eq 0 ] && echo "PHASE 2 GATE: PASS" || echo "PHASE 2 GATE: FAIL"
+exit $fail
+NG: 허용 규칙에 20022/15034 외 항목 존재 (allow=0, expected=4)
+PHASE 2 GATE: FAIL
+--- exit=1 ---
+
+============================================================
+ EVIDENCE : phase2-ufw
+ OPENED   : 2026-08-09 22:19:34 KST
+ HOST     : agent-lab    USER: root
+============================================================
+
+### 2026-08-09 22:19:34  [NOTE]
+[게이트 실패 기록 — 원인 및 수정]
+증상 : Phase 2 gate 가 '허용 규칙에 20022/15034 외 항목 존재 (allow=0)' 로 FAIL.
+       그러나 ufw status verbose 출력상 규칙은 정확히 4행(20022/15034 의 v4/v6)뿐이었다.
+원인 : 방화벽 설정이 아니라 게이트 검사식의 버그.
+       'ufw status'(평문) 는 Action 컬럼을 'ALLOW' 로 출력하고,
+       'ALLOW IN' 은 'ufw status verbose' 에서만 나온다.
+       평문 출력에 'ALLOW IN' 을 grep 했으므로 매치 0 → allow=0.
+확인 : ufw status | cat -A 로 실제 바이트를 확인해 'ALLOW' 뒤가 공백임을 검증.
+수정 : 규칙 카운트를 'ufw status verbose' 기준으로 변경.
+교훈 : 같은 명령이라도 옵션에 따라 출력 스키마가 달라진다. 스크립트에서 CLI 출력을
+       파싱할 때는 '무엇을 파싱하는지'를 옵션까지 포함해 고정해야 한다.
+       이 실패는 monitor.sh 에서 top/free 대신 /proc 을 직접 읽기로 한 판단과 같은 이유다.
+
+### 2026-08-09 22:19:34
+$ echo "[ufw status]        : $(ufw status         | grep -E "^20022/tcp " | head -1)"
+       echo "[ufw status verbose]: $(ufw status verbose | grep -E "^20022/tcp " | head -1)"
+[ufw status]        : 20022/tcp                  ALLOW       Anywhere                   # SSH
+[ufw status verbose]: 20022/tcp                  ALLOW IN    Anywhere                   # SSH
+--- exit=0 ---
+
+### 2026-08-09 22:19:34
+$ 
+fail=0
+ufw status | grep -q "Status: active" || { echo "NG: ufw not active"; fail=1; }
+ufw status | grep -q "20022/tcp"      || { echo "NG: 20022 rule missing"; fail=1; }
+ufw status | grep -q "15034/tcp"      || { echo "NG: 15034 rule missing"; fail=1; }
+t=$(ufw status verbose | grep -cE "ALLOW IN")
+n=$(ufw status verbose | grep -E "ALLOW IN" | grep -cE "^(20022|15034)/tcp")
+echo "허용 규칙 총 ${t}행 중 20022/15034 에 해당: ${n}행"
+{ [ "$t" -eq "$n" ] && [ "$t" -eq 4 ]; } || { echo "NG: 의도하지 않은 허용 규칙 존재"; fail=1; }
+ufw status verbose | grep -q "Default: deny (incoming)" || { echo "NG: default incoming policy"; fail=1; }
+grep -q "^ENABLED=yes" /etc/ufw/ufw.conf || { echo "NG: ufw.conf ENABLED"; fail=1; }
+[ $fail -eq 0 ] && echo "PHASE 2 GATE: PASS" || echo "PHASE 2 GATE: FAIL"
+exit $fail
+허용 규칙 총 4행 중 20022/15034 에 해당: 4행
+PHASE 2 GATE: PASS
+--- exit=0 ---
+
+### 2026-08-09 22:20:06  [EXTERNAL PROBE — 호스트에서 실행]
+$ docker run --rm --network agent-lab-net ubuntu:24.04 timeout 6 bash -c "</dev/tcp/agent-lab/PORT"
+
+  port 20022  ALLOW + sshd 리슨          rc=0      0.2s   연결 성공 (ALLOW + 리스너 있음)
+  port 15034  ALLOW + 리스너 없음     rc=1      0.2s   연결 거부 → 패킷 도달함 (ALLOW 이나 리스너 없음)
+      (bash: line 1: /dev/tcp/agent-lab/15034: Connection refused)
+  port 9999   규칙 없음 (기본 deny)  rc=124    6.2s   타임아웃 → 패킷 DROP (방화벽이 막음)
+
+판정: 9999 만 타임아웃(DROP)이고 15034 는 즉시 거부되었다면,
+      방화벽이 규칙에 따라 실제로 패킷을 차단하고 있다는 뜻이다.
+--- end of external probe ---
+
