@@ -17,7 +17,7 @@
 | **[EXPLAIN.md](EXPLAIN.md)** | **설명 자료** — 개념 정리, 과제 목표 6문항 설명 대본, 코드 워크스루, 예상 Q&A, 시연 시나리오 |
 | [WORKLOG.md](WORKLOG.md) | 작업 로그 — 실패 8건의 원인과 조치 |
 | [PLAN.md](PLAN.md) | 수행 계획 + 호스트 영향 분석 |
-| `evidence/FINAL-VERIFICATION.txt` | 최종 상태 검증 (`env/collect-evidence.sh` 로 재생성) |
+| `evidence/FINAL-VERIFICATION.txt` | 최종 상태 검증 (`env/collect-evidence.sh` 로 재생성. 줄 수 차이는 [evidence/INDEX.md](evidence/INDEX.md) 참조) |
 
 ---
 
@@ -166,7 +166,9 @@ agent-test 가 `agent-core` 에 **없는 것**이 이 설계의 핵심이다.
 | `$AGENT_HOME/api_keys` | agent-admin:**agent-core** | **2770** | `g:agent-core:rwx`, `o::---` |
 | `/var/log/agent-app` | agent-admin:**agent-core** | **2770** | `g:agent-core:rwx`, `o::---` |
 
-**적용 결과** ([config/directory-perms.txt](config/directory-perms.txt)):
+> 구 작업의 표에는 보너스용 아카이브 디렉토리 행이 1개 더 있었으나 이번 재구성에서 뺐다.
+
+**적용 결과** ([config/directory-perms.txt](config/directory-perms.txt)) — 원본에는 보너스용 아카이브 디렉토리 행이 1개 더 있으나 이 인용에서는 생략했다(원본 파일은 수정하지 않았다):
 ```
 drwxr-x---+ 3 agent-admin agent-admin  /home/agent-admin
 drwxr-s---+ 5 agent-admin agent-core   /home/agent-admin/agent-app
@@ -510,9 +512,22 @@ cron 은 `/etc/profile.d` 를 읽지 않는다. `PATH` 와 `HOME` 정도만 있�
 
 작업 중 관련된 버그도 하나 고쳤다. 처음엔 `set -a; . env파일; set +a` 로 읽었는데,
 이 방식은 **호출자가 명시적으로 준 환경 변수를 파일 값이 덮어쓴다.**
-`AGENT_LOG_DIR=... ./스크립트` 로 지정해도 무시됐다. 파일은 **기본값**이어야
-하고 명시적 지정이 이겨야 하므로, 이미 설정된 변수는 건너뛰도록 고쳤다
-(`monitor.sh` 의 `load_env_defaults()`).
+실제로 `AGENT_LOG_DIR=/var/log/does-not-exist` 로 실행했는데 출력에는 원래 값
+`/var/log/agent-app` 이 찍혔다. 이 증상은 같은 로딩 방식을 쓰던 다른 스크립트를 시험하다 발견했고,
+그 스크립트와 증거 파일은 이 산출물에서 제외했으므로 흔적은
+`evidence/session/2026-08-09-session.log` L1531–1538 에만 남아 있다.
+`monitor.sh` 도 같은 패턴이라 함께 고쳤다(`load_env_defaults()`).
+파일은 **기본값**이어야 하고 명시적 지정이 이겨야 하므로, 이미 설정된 변수는 건너뛴다.
+
+현재 함수로 다시 확인한 **로컬 리허설**(호스트 bash, 임시 `x.env` 사용. 컨테이너 증거가 아니다):
+```
+$ AGENT_LOG_DIR=/var/log/does-not-exist bash -c 'set -a; . x.env; set +a; echo $AGENT_LOG_DIR'
+/var/log/agent-app                          # 구 방식: 파일 값이 이겼다
+$ AGENT_LOG_DIR=/var/log/does-not-exist bash -c '. loader.sh; load_env_defaults x.env; echo $AGENT_LOG_DIR'
+/var/log/does-not-exist                     # 현재 monitor.sh 방식: 명시적 지정이 이긴다
+```
+(`x.env` 는 `AGENT_LOG_DIR=/var/log/agent-app` 한 줄, `loader.sh` 는 `monitor.sh` 에서 함수 본문만 뗀 파일이다.
+자세한 출력은 [WORKLOG.md](WORKLOG.md) 의 "Phase 6 이후" 절.)
 
 ### 4-5. 쉘 스크립트로 상태를 수집하고 로그로 남겨 문제를 추적하는 흐름
 
@@ -585,9 +600,16 @@ CPU 는 `/proc/stat` 을 1초 간격으로 **두 번** 읽어 차이로 계산�
 경우에도 디스크를 무한정 쓰지 않는다. (11MB 더미 로그로 회전을 실증했다: [WORKLOG](WORKLOG.md) Phase 5, `evidence/phase5-monitor.txt`)
 
 **삭제 단계를 두는 이유**는 "최근 것은 빠르게 보고, 오래된 것은 버린다"는 실제 필요 때문이다.
-안 지우면 언젠가 터지고, 바로 지우면 사후 분석을 할 수 없다. 회전본 10개는 그 사이의
-절충이다. 회전본을 압축하면 같은 공간에 더 긴 이력을 둘 수 있으나, 이 과제는 크기 기반
-회전까지를 구현했고 압축은 구현하지 않았다.
+안 지우면 언젠가 터지고, 바로 지우면 사후 분석을 할 수 없다. 회전본 10개는 그 사이의 절충이다.
+삭제 기준(여기서는 크기 10MB × 10개)이 없으면 보존 기간이 "디스크가 찰 때까지"로 암묵적으로 정해져,
+가장 나쁜 시점에 서비스가 멈춘다. 기준을 명시하면 필요한 이력 길이와 디스크 예산을 맞바꿔 계획할 수 있다.
+
+**압축이 필요한 이유**는 같은 디스크에 더 긴 이력을 두기 위해서다. 텍스트 로그는 반복이 많아 gzip 으로
+크게 줄어들고, 보관·백업·원격 전송의 I/O 비용도 함께 줄어든다. 반대로 **최근 로그는 압축하지 않는다.**
+장애 대응 중에는 `tail -f`·`grep` 으로 바로 읽어야 하고, 압축본은 `zcat`·`zgrep` 을 거쳐야 한다. 쓰고 있는
+활성 파일을 압축하면 그 사이 append 된 줄이 유실되거나 불일치할 위험도 있다. 그래서 보통 "활성 로그는 그대로,
+회전이 끝난 오래된 파일만 압축, 더 오래되면 삭제"의 순서를 둔다. 이 과제는 크기 기반 회전과 오래된 파일 삭제까지를
+구현했고, **압축은 구현하지 않았다.**
 
 **로테이션을 logrotate 대신 스크립트에 내장한 이유**는 실행 주체 때문이다.
 logrotate 는 root 권한과 `/etc/logrotate.d` 접근이 필요한데 cron 실행자는 비특권
