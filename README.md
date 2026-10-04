@@ -14,7 +14,6 @@
 
 | 문서 | 용도 |
 |---|---|
-| **[EXPLAIN.md](EXPLAIN.md)** | **설명 자료** — 개념 정리, 과제 목표 6문항 설명 대본, 코드 워크스루, 예상 Q&A, 시연 시나리오 |
 | [WORKLOG.md](WORKLOG.md) | 작업 로그 — 실패 8건의 원인과 조치 |
 | [PLAN.md](PLAN.md) | 수행 계획 + 호스트 영향 분석 |
 | `evidence/FINAL-VERIFICATION.txt` | 최종 상태 검증 (`env/collect-evidence.sh` 로 재생성. 줄 수 차이는 [evidence/INDEX.md](evidence/INDEX.md) 참조) |
@@ -36,7 +35,6 @@
 ```
 answers/
 ├── README.md               ← 이 문서 (요구사항 수행 내역서)
-├── EXPLAIN.md              ★ 설명 자료 (스스로 설명하기 위한 학습 문서)
 ├── WORKLOG.md              작업 로그 — 실패 8건의 원인과 조치
 ├── PLAN.md                 수행 계획 + 호스트 영향 분석
 ├── scripts/
