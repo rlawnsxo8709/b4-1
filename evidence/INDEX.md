@@ -3,7 +3,7 @@
 미션이 요구하는 **필수 증거 8종**을 파일·라인으로 연결한다.
 채점자가 찾아 헤매지 않도록 하는 것이 목적이다.
 
-- 최종 상태 검증: `FINAL-VERIFICATION.txt` (388줄) — `env/collect-evidence.sh` 로 재생성 가능
+- 최종 상태 검증: `FINAL-VERIFICATION.txt` (388줄) — `env/collect-evidence.sh` 로 재생성 가능. 단, 이번 재구성에서 이 스크립트의 추가 항목 블록을 제거했으므로 지금 재생성하면 필수 8종 구간(L1–308)에 해당하는 약 308줄이 나오며, 아래 L309–388 은 재생성본에 포함되지 않는다. 원본 388줄 파일과 줄 수·줄 번호가 달라질 수 있다.
 - 단계별 상세: `phase*.txt` — 명령 + 출력 + **종료코드**가 시간순으로 append
 - 원본 녹화: `session/2026-08-09-session.log` (2,237줄) — 실패·오타 포함, 편집하지 않음
 - 설정 실물: `snapshots/` — `env/snapshot.sh` 가 실제 파일을 복사한 것
@@ -53,7 +53,7 @@
 | 외부 프로브로 방화벽 실동작 증명 (거부 vs 타임아웃) | `phase2-ufw.txt` |
 | 경로 통행권 결함 — 게이트가 PASS 를 준 설계 오류 | `phase3-account-acl.txt` |
 | `AGENT_KEY_PATH` 가 디렉토리, 키 파일명이 `secret.key` | `phase4-app.txt` |
-| `pkill -f` 자기매치 (3회 반복) | `phase4-app.txt`, `phase6-cron.txt` |
+| `pkill -f` 자기매치 (4회 반복: Phase 4 1회, Phase 6 2회, Phase 9 1회) | `phase4-app.txt`, `phase6-cron.txt`, `phase9-doc-conformance.txt` |
 | 명령 치환이 백그라운드 잡을 기다려 부하 테스트 무효화 | `phase6-cron.txt` |
 | 실부하 CPU 51.3% → 기본 임계값 20% 경고 발생 | `phase6-cron.txt` |
 

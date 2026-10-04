@@ -23,9 +23,9 @@
 | 2 | agent-test 가 `upload_files` 에 도달 못 함 (경로 통행권) | **설계 결함** | Phase 3 |
 | 3 | `AGENT_KEY_PATH` 가 파일이 아니라 디렉토리 | 문서-구현 불일치 | Phase 4·9 |
 | 4 | 앱이 찾는 키 파일명이 `secret.key` (문서는 `t_secret.key`) | 문서-구현 불일치 | Phase 4·9 |
-| 5 | `pkill -f` 가 자기 자신을 죽임 (**4회 반복**) | 셸 함정 | Phase 4, 6, 9 |
+| 5 | `pkill -f` 가 자기 자신을 죽임 (**4회 반복**: Phase 4 1회, Phase 6 2회, Phase 9 1회) | 셸 함정 | Phase 4, 6, 9 |
 | 6 | 명령 치환이 백그라운드 잡을 기다려 부하 테스트 무효화 | 측정 방법 오류 | Phase 6 |
-| 7 | 환경 변수 오버라이드가 먹지 않음 (`set -a; . file` 이 호출자 값을 덮어씀) | **로직 버그** | Phase 5 후속 보강 |
+| 7 | 환경 변수 오버라이드가 먹지 않음 (`set -a; . file` 이 호출자 값을 덮어씀) | **로직 버그** | Phase 6 이후 보강 (22:44) |
 | 8 | 키 파일이 실제로 생성되지 않았는데 결과가 우연히 맞아 은폐됨 | **은폐된 버그** | Phase 9 |
 
 이 중 **2, 8번은 게이트가 PASS 를 준 상태에서 발견됐다.** 검사 항목이 부족했기 때문이며,
@@ -195,7 +195,7 @@ api_keys / 로그 / bin 모두 차단 유지 확인.
 **대응**: 두 파일을 같은 내용으로 생성해 문서 요구와 앱 요구를 모두 충족시켰다.
 어느 쪽 기준으로 채점하더라도 통과하며, 불일치 사실 자체를 기록에 남긴다.
 
-**실패 5 — `pkill -f` 자기매치 (이번 작업에서 3번 걸림)**
+**실패 5 — `pkill -f` 자기매치 (이번 작업에서 모두 4번 걸림)**
 
 앱을 정리하려고 `bash -c "... pkill -f agent-app-linux-arm64 ..."` 를 실행했더니
 셸이 종료코드 143(SIGTERM)으로 죽었다. `pkill -f` 는 **자기 자신을 포함한** 전체
@@ -209,7 +209,10 @@ agent-app-linux-arm[6]4
 이 정규식은 실제 프로세스(`...arm64`)에 매치되지만, 명령줄에 남는 문자열
 (`...arm[6]4`)에는 매치되지 않는다. monitor.sh 의 감시 패턴도 이 형태로 고정했다.
 
-같은 함정에 Phase 6 에서 두 번 더 걸렸다(`pkill -f 'while :'`). 3회 반복된 만큼
+같은 함정에 Phase 6 에서 두 번 더 걸렸고(`pkill -f 'while :'`, `phase6-cron.txt` 의 노트는
+이 시점까지를 '3회째'로 적었다), Phase 9 에서 한 번 더 걸려 **모두 4회**가 됐다.
+구조화 증거에서 `exit=143` 으로 확인되는 위치는 Phase 4 1건, Phase 6 2건, Phase 9 4건이다.
+Phase 9 의 4건은 한 번의 시험 실행 안에서 연달아 같은 원인으로 중단된 것이라 사고 횟수로는 1회로 센다.
 이 작업에서 가장 비용이 컸던 함정이다.
 
 **앱의 정체**: PyInstaller 단일 바이너리이고, 단순 대기 서버가 아니라
@@ -244,17 +247,6 @@ monitor.sh 의 임계값 경고가 실제로 발동하도록 설계된 것으로
 **권한 체계가 맞물리는지도 확인**: agent-dev 가 직접 `bin/` 에 작성(ACL 동작),
 setgid 로 그룹이 자동으로 agent-core 지정, agent-admin 은 그룹 권한으로 실행 가능,
 agent-test 는 차단.
-
-**실패 7 — 환경 변수 오버라이드가 먹지 않음 (Phase 5 후속 보강)**
-
-처음 `monitor.sh` 는 환경 파일을 `set -a; . /etc/agent-app.env; set +a` 로 읽었다.
-이 방식은 **호출자가 명시적으로 준 값을 파일 값으로 덮어쓴다.**
-`AGENT_LOG_DIR=... ./스크립트` 로 지정해도 무시되어, 파일이 항상 이기는 구조였다.
-같은 패턴을 쓰던 다른 스크립트에서 증상이 먼저 드러났고(그 스크립트는 이 산출물에서
-제외했다), `monitor.sh` 도 같은 패턴이라 함께 고쳤다.
-
-→ `load_env_defaults()` 로 교체. 이미 설정된 변수는 건너뛰고 비어 있는 것만 채운다.
-**명시적으로 준 값이 항상 이긴다.**
 
 ---
 
@@ -291,6 +283,55 @@ out="$(bash -c "$1" 2>&1)"
 
 덧붙여, cron 이 돌던 중 **MEM 12.8% 가 자연 발생해 기본 임계값 10% 에서 경고가
 실제로 기록됐다**(`cron.out`). 조작 없이 잡힌 경고다.
+
+---
+
+## Phase 6 이후 — 환경 변수 오버라이드 보강 (monitor.sh 후속 수정)
+
+**실패 7 — 환경 변수 오버라이드가 먹지 않음**
+
+Phase 6 의 cron 검증까지 끝난 뒤, 같은 환경 파일 로딩 방식을 쓰는 다른 스크립트를 시험하다
+증상이 드러났다. 그 스크립트는 이 산출물에서 제외했고, 그 단계의 증거 파일도 삭제했다.
+따라서 당시 증상의 흔적은 **`evidence/session/2026-08-09-session.log` L1531–1538 에만** 남아 있다.
+
+```
+증상 : AGENT_LOG_DIR=/var/log/does-not-exist 로 실행했는데
+       출력에는 source: /var/log/agent-app 가 찍혔다.
+원인 : (set -a; . /etc/agent-app.env; set +a) 가 호출자가 준 값을 파일 값으로 덮어썼다.
+영향 : monitor.sh 도 같은 패턴이었으므로 함께 수정했다.
+```
+
+`monitor.sh` 의 수정 시각은 22:44 이다(`config/script-perms.txt`). Phase 6 의 마지막 부하 시험(22:36)보다
+뒤이므로 번호와 서술 위치를 Phase 6 다음에 두었다. 처음 `monitor.sh` 는 환경 파일을
+`set -a; . /etc/agent-app.env; set +a` 로 읽었다. 이 방식은 **호출자가 명시적으로 준 값을 파일 값으로
+덮어쓰므로**, 파일이 항상 이기는 구조였다.
+
+→ `load_env_defaults()` 로 교체. 이미 설정된 변수는 건너뛰고 비어 있는 것만 채운다.
+**명시적으로 준 값이 항상 이긴다.**
+
+현재 산출물에서 이 차이를 다시 확인한 **로컬 리허설**(호스트 bash, 임시 환경 파일 사용. 컨테이너 증거가 아니다):
+
+```
+$ cat x.env
+AGENT_LOG_DIR=/var/log/agent-app
+
+# 구 방식 (set -a; . file)
+$ AGENT_LOG_DIR=/var/log/does-not-exist bash -c 'set -a; . x.env; set +a; echo "AGENT_LOG_DIR=$AGENT_LOG_DIR"'
+AGENT_LOG_DIR=/var/log/agent-app
+
+# 현재 scripts/monitor.sh 의 load_env_defaults()
+$ AGENT_LOG_DIR=/var/log/does-not-exist bash -c '. loader.sh; load_env_defaults x.env; echo "AGENT_LOG_DIR=$AGENT_LOG_DIR"'
+AGENT_LOG_DIR=/var/log/does-not-exist
+
+# 값을 주지 않았을 때는 파일 값으로 채운다
+$ env -u AGENT_LOG_DIR bash -c '. loader.sh; load_env_defaults x.env; echo "AGENT_LOG_DIR=$AGENT_LOG_DIR"'
+AGENT_LOG_DIR=/var/log/agent-app
+```
+
+(`loader.sh` 는 `scripts/monitor.sh` 에서 `load_env_defaults()` 함수 본문만 `sed -n` 으로 떼어 낸 파일이다.)
+이 리허설은 함수 동작만 보여 준다. monitor.sh 를 실제로 `AGENT_LOG_DIR=/var/log/does-not-exist` 로
+돌린 컨테이너 실행 기록은 없다. 코드상 이 경우 Health Check 통과 후 `[FATAL] Log directory not found`
+로 exit 1 이 되는 것이 기대 동작이다.
 
 ---
 
