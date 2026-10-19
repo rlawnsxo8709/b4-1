@@ -145,11 +145,11 @@ rec() {
 
 ### 2-4. 설정 파일은 손으로 옮겨 적지 않는다
 
-`env/snapshot.sh`가 실제 파일을 `answers/config/`로 **복사**한다.
+`env/snapshot.sh`가 실제 파일을 `evidence/snapshots/`로 **복사**한다(`config/`는 그 사본).
 ```
-/etc/ssh/sshd_config.d/99-agent.conf  →  config/sshd_config.d-99-agent.conf
-/etc/agent-app.env                    →  config/agent-app.env
-agent-admin crontab -l                →  config/agent-admin.crontab
+/etc/ssh/sshd_config.d/99-agent.conf  →  evidence/snapshots/sshd_config.d-99-agent.conf
+/etc/agent-app.env                    →  evidence/snapshots/agent-app.env
+agent-admin crontab -l                →  evidence/snapshots/crontab-agent-admin.txt
 ```
 제출 문서의 설정 = 실제 적용된 설정임이 보장된다.
 
@@ -191,12 +191,12 @@ answers/
 │   ├── run.sh                    # 컨테이너 기동 (비특권 사양)
 │   ├── teardown.sh               # 컨테이너·네트워크·이미지 일괄 삭제 + evidence chown
 │   ├── rec.sh                    # Layer 2: 증거 자동 적재 헬퍼
-│   ├── snapshot.sh               # 실제 설정 파일 → config/ 복사
+│   ├── snapshot.sh               # 실제 설정 파일 → evidence/snapshots/ 복사
 │   ├── collect-evidence.sh       # 전체 검증 재실행
 │   └── bootstrap.sh              # 컨테이너 내부 1회 셋업
 ├── scripts/
 │   └── monitor.sh                # 제출 산출물 2 (필수)
-├── config/                       # 실제 적용된 설정 파일 사본 (자동 생성)
+├── config/                       # evidence/snapshots/ 의 사본 (내용 동일)
 └── evidence/                     # Layer 1+2 (호스트 바인드 마운트)
     ├── INDEX.md
     ├── session/                  # script(1) 원본 녹화

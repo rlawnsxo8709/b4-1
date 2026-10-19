@@ -10,7 +10,7 @@
 
 이 문서에 인용된 모든 명령 출력은 **실제 실행 결과를 그대로 옮긴 것**이다.
 손으로 옮겨 적은 설정은 없으며, 설정 파일은 `env/snapshot.sh` 가 실물을
-`config/` 로 복사한 것이다.
+`evidence/snapshots/` 로 복사한 것이다. `config/` 는 그 사본이다(내용 동일).
 
 | 문서 | 용도 |
 |---|---|
@@ -41,13 +41,14 @@ answers/
 ├── scripts/
 │   └── monitor.sh          ★ 제출 산출물: 시스템 상태 수집 및 로깅
 ├── env/                    실습 환경 및 기록 도구
+│   ├── README.md           env 안내 — 파일별 역할, Dockerfile, 실제 서버와 다른 점
 │   ├── Dockerfile, run.sh, teardown.sh
 │   ├── bootstrap.sh        Phase 1~4 통합 셋업 (최종 확정판)
 │   ├── rec.sh              증거 자동 적재 헬퍼
-│   ├── snapshot.sh         실제 설정 파일 → config/ 복사
+│   ├── snapshot.sh         실제 설정 파일 → evidence/snapshots/ 복사
 │   ├── collect-evidence.sh 필수 증거 8종 일괄 재수집
 │   └── phases/             단계별 수행·검증 스크립트
-├── config/                 실제 적용된 설정 파일 사본 (자동 생성)
+├── config/                 evidence/snapshots/ 의 사본 (내용 동일)
 └── evidence/
     ├── FINAL-VERIFICATION.txt   최종 상태 검증
     ├── phase*.txt               단계별 증거 (명령 + 출력 + 종료코드)
