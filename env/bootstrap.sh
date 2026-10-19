@@ -19,7 +19,14 @@ set -euo pipefail
 
 AGENT_HOME=/home/agent-admin/agent-app
 LOG_DIR=/var/log/agent-app
-APP_BIN=agent-app-linux-arm64
+
+# 제공 앱은 아키텍처별 바이너리 두 개다. run.sh 와 같은 기준으로 고른다.
+# 패턴의 대괄호는 pgrep 자기매치 방지용이다.
+case "$(uname -m)" in
+    aarch64|arm64) APP_BIN=agent-app-linux-arm64; APP_PATTERN='agent-app-linux-arm[6]4' ;;
+    x86_64)        APP_BIN=agent-app-linux-x86;   APP_PATTERN='agent-app-linux-x8[6]'   ;;
+    *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+esac
 
 step() { printf '\n=== %s ===\n' "$1"; }
 
@@ -114,7 +121,7 @@ AGENT_KEY_PATH=$AGENT_HOME/api_keys
 AGENT_LOG_DIR=$LOG_DIR
 
 # 관제 대상 프로세스 패턴. 대괄호는 pgrep 자기매치 방지용이다.
-AGENT_APP_PATTERN=agent-app-linux-arm[6]4
+AGENT_APP_PATTERN=$APP_PATTERN
 EOF
 chmod 644 /etc/agent-app.env
 

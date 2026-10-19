@@ -9,6 +9,7 @@ source /usr/local/lib/rec.sh
 AGENT_HOME=/home/agent-admin/agent-app
 LOG_DIR=/var/log/agent-app
 BIN="$AGENT_HOME/bin"
+APP_PATTERN="$(sed -n 's/^AGENT_APP_PATTERN=//p' /etc/agent-app.env)"
 
 EVIDENCE_FILE=/evidence/FINAL-VERIFICATION.txt
 : > "$EVIDENCE_FILE"
@@ -52,7 +53,7 @@ rec_expect_fail sudo -u agent-dev  ls /home/agent-admin
 
 hdr "증거 5 — 앱 Boot Sequence 5단계 [OK] 및 Agent READY"
 recsh "sed -n '/Starting Agent Boot Sequence/,/Agent READY/p' '$AGENT_HOME/app-boot.log' | tail -20"
-recsh "ps -eo pid,user,args --no-headers | grep 'agent-app-linux-arm[6]4' | grep -v grep"
+recsh "ps -eo pid,user,args --no-headers | grep '$APP_PATTERN' | grep -v grep"
 recsh "ss -tuln | grep ':15034 '"
 
 hdr "증거 6 — monitor.sh 실행 결과 (프로세스/포트/리소스/경고)"

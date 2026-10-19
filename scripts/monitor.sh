@@ -70,7 +70,11 @@ load_env_defaults /etc/agent-app.env
 AGENT_HOME="${AGENT_HOME:-/home/agent-admin/agent-app}"
 AGENT_PORT="${AGENT_PORT:-15034}"
 AGENT_LOG_DIR="${AGENT_LOG_DIR:-/var/log/agent-app}"
-APP_PATTERN="${AGENT_APP_PATTERN:-agent-app-linux-arm[6]4}"
+case "$(uname -m)" in
+    aarch64|arm64) DEFAULT_APP_PATTERN='agent-app-linux-arm[6]4' ;;
+    *)             DEFAULT_APP_PATTERN='agent-app-linux-x8[6]' ;;
+esac
+APP_PATTERN="${AGENT_APP_PATTERN:-$DEFAULT_APP_PATTERN}"
 
 LOG_FILE="$AGENT_LOG_DIR/monitor.log"
 UFW_CONF=/etc/ufw/ufw.conf
