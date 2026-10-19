@@ -16,7 +16,7 @@ ANSWERS="$(dirname "$HERE")"
 IMAGE=agent-lab:latest
 NAME=agent-lab
 NET=agent-lab-net
-APP_SRC="$ANSWERS/../questions/agent-app.zip"
+APP_SRC="$ANSWERS/agent-app.zip"
 
 mkdir -p "$ANSWERS/evidence/session"
 
