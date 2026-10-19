@@ -532,15 +532,15 @@ QA 업무에는 키와 운영 로그가 필요 없다. 그래서 agent-test 가 
 업로드 파일에서 멈추도록 두 디렉토리는 agent-core 에게만 열었다.
 
 ```bash
-# env/bootstrap.sh:95-99
+# env/bootstrap.sh:102-106
 for d in "$AGENT_HOME/api_keys" "$LOG_DIR"; do
     setfacl -m  g:agent-core:rwx -m o::--- "$d"     # agent-core 만 R/W, 그 외 차단
     setfacl -dm g:agent-core:rwx -dm o::--- "$d"    # 앞으로 생길 파일에도 같은 규칙
 done
 ```
 
-- 키 파일 자체도 `640 agent-admin:agent-core` 다(`env/bootstrap.sh:141`). 누구나 읽는
-  환경 파일(`/etc/agent-app.env`, 644, `env/bootstrap.sh:119`)에는 키 **경로만** 두고
+- 키 파일 자체도 `640 agent-admin:agent-core` 다(`env/bootstrap.sh:148`). 누구나 읽는
+  환경 파일(`/etc/agent-app.env`, 644, `env/bootstrap.sh:126`)에는 키 **경로만** 두고
   키 값은 넣지 않았다.
 - 막혀야 할 곳이 실제로 막히는지 네거티브 테스트로 확인했다. agent-test 는 공유 영역에
   쓸 수 있지만 두 디렉토리는 `Permission denied` 다(`evidence/FINAL-VERIFICATION.txt:153-167`).
@@ -636,11 +636,11 @@ CPU 는 `/proc/stat` 을 1초 간격으로 **두 번** 읽어 차이로 계산�
 
 | 점검 | 쓴 명령 (`scripts/monitor.sh`) | 대안 | 대안을 쓰지 않은 이유 |
 |---|---|---|---|
-| 프로세스 | `pgrep -f "$APP_PATTERN" \| head -1` (:187) | `pgrep`(`-f` 없이), `ps -ef \| grep` | `-f` 가 없으면 프로세스 이름(15자에서 잘림)만 비교해 `agent-app-linux-arm64` 를 못 찾는다(`evidence/phase4-app.txt:331-332`). `ps \| grep` 은 grep 자신이 섞여 걸러 내는 처리가 더 필요하다 |
-| 포트 | `ss -ltn` (:196) | `netstat -ltn`, `ss -ltnp`, `lsof -i` | netstat 은 net-tools 패키지라 이미지에 없다(`env/Dockerfile:14-24`, iproute2 만 설치). `-p`·`lsof` 로 다른 계정의 프로세스를 보려면 root 가 필요하다 |
-| 방화벽 | `/etc/ufw/ufw.conf` 의 `ENABLED` (:206) | `ufw status` | root 전용이다(`evidence/phase2-ufw.txt:88-90`) |
-| CPU·MEM | `/proc/stat`, `/proc/meminfo` (:114-142) | `top`, `free`, `vmstat` | 출력 형식이 로케일·버전에 따라 바뀐다 |
-| DISK | `df -P /` (:146-148) | `df -h /` | `-h` 는 단위를 바꿔 출력하고, `-P` 는 POSIX 가 정한 한 줄 형식을 보장한다 |
+| 프로세스 | `pgrep -f "$APP_PATTERN" \| head -1` (:191) | `pgrep`(`-f` 없이), `ps -ef \| grep` | `-f` 가 없으면 프로세스 이름(15자에서 잘림)만 비교해 `agent-app-linux-arm64` 를 못 찾는다(`evidence/phase4-app.txt:331-332`). `ps \| grep` 은 grep 자신이 섞여 걸러 내는 처리가 더 필요하다 |
+| 포트 | `ss -ltn` (:200) | `netstat -ltn`, `ss -ltnp`, `lsof -i` | netstat 은 net-tools 패키지라 이미지에 없다(`env/Dockerfile:14-24`, iproute2 만 설치). `-p`·`lsof` 로 다른 계정의 프로세스를 보려면 root 가 필요하다 |
+| 방화벽 | `/etc/ufw/ufw.conf` 의 `ENABLED` (:210) | `ufw status` | root 전용이다(`evidence/phase2-ufw.txt:88-90`) |
+| CPU·MEM | `/proc/stat`, `/proc/meminfo` (:118-146) | `top`, `free`, `vmstat` | 출력 형식이 로케일·버전에 따라 바뀐다 |
+| DISK | `df -P /` (:150-152) | `df -h /` | `-h` 는 단위를 바꿔 출력하고, `-P` 는 POSIX 가 정한 한 줄 형식을 보장한다 |
 
 **로그로 남기는 것의 의미**는 로그 포맷 자체에 있다.
 ```
@@ -695,13 +695,13 @@ agent-admin 이다. 관제 스크립트가 자기 로그를 스스로 관리하�
 |---|---|---|
 | 실행 주체 | cron 의 agent-admin (비특권) | root (`/etc/cron.daily/logrotate` 또는 systemd 타이머) |
 | 확인 시점 | `monitor.sh` 가 기록하기 직전, 매분 | 보통 하루 한 번. 그 사이에는 10MB 를 넘을 수 있다 |
-| 설정 위치 | `scripts/monitor.sh:89-90`(`MAX_LOG_SIZE`, `MAX_LOG_FILES`) | `/etc/logrotate.d/<이름>`(`size 10M`, `rotate 10`) |
+| 설정 위치 | `scripts/monitor.sh:93-94`(`MAX_LOG_SIZE`, `MAX_LOG_FILES`) | `/etc/logrotate.d/<이름>`(`size 10M`, `rotate 10`) |
 | 압축·기간 기준·알림 | 직접 구현해야 한다 (압축은 미구현) | `compress`, `daily`, `postrotate` 등 옵션으로 제공 |
 | 여러 로그의 통합 관리 | 이 스크립트의 로그만 다룬다 | 시스템의 로그 정책을 한곳에서 관리한다 |
 
 **운영 정책으로 적으면 이렇다.**
-- 대상: `monitor.log` 하나. 10MB 이상이면 회전하고(`scripts/monitor.sh:158-175`),
-  본체 + 회전본 10개 = 최대 11개 파일, **총량 약 110MB 가 상한**이다(`:153-156`).
+- 대상: `monitor.log` 하나. 10MB 이상이면 회전하고(`scripts/monitor.sh:162-179`),
+  본체 + 회전본 10개 = 최대 11개 파일, **총량 약 110MB 가 상한**이다(`:157-160`).
 - 회전본은 같은 디렉토리에 두고 백업·압축은 하지 않는다. 보관 기간은 크기로 정해지며,
   한 줄 약 70바이트 기준으로 10MB 는 약 100일 분량이다.
 - **구멍**: crontab 이 `>>` 로 쌓는 `cron.out` 은 회전 대상이 아니다. 한 번 실행 출력이
@@ -715,7 +715,7 @@ agent-admin 이다. 관제 스크립트가 자기 로그를 스스로 관리하�
 | `>` | 파일을 열 때 길이를 0으로 자르고 처음부터 쓴다 (덮어쓰기) | 매번 앞의 기록이 지워져 마지막 1회분만 남는다. "1분 뒤 줄 수가 늘었다"는 증명도, 사후 추적도 불가능하다 |
 | `>>` | 파일 끝에 덧붙인다. 파일이 없으면 새로 만든다 | 실행할 때마다 한 줄씩 쌓여 시간 흐름을 볼 수 있다 |
 
-- `monitor.sh` 는 `echo "$LOG_LINE" >> "$LOG_FILE"` 로 기록한다(`scripts/monitor.sh:254`).
+- `monitor.sh` 는 `echo "$LOG_LINE" >> "$LOG_FILE"` 로 기록한다(`scripts/monitor.sh:258`).
   회전으로 본체를 `.1` 로 옮긴 직후에도 `>>` 가 새 `monitor.log` 를 만든다.
 - crontab 은 `>> cron.out 2>&1` 이다(`config/crontab-agent-admin.txt:6`). `2>&1` 은
   오류 출력(2번)을 정상 출력(1번)이 가는 곳으로 보내, 오류도 같은 파일에 남긴다.
@@ -730,13 +730,13 @@ agent-admin 이다. 관제 스크립트가 자기 로그를 스스로 관리하�
 ### 5-1. 감시 대상이 웹 서버(Nginx)로 바뀔 때의 체크리스트
 
 바꿀 값은 대부분 변수라 **코드를 고치지 않고 `/etc/agent-app.env` 만 바꾸면 된다**
-(`scripts/monitor.sh:70-73`, `:84-86`).
+(`scripts/monitor.sh:70-77`, `:88-90`).
 
 | 항목 | 지금 (agent-app) | Nginx 로 바꿀 때 | 바꾸는 곳 |
 |---|---|---|---|
 | 프로세스 | `agent-app-linux-arm[6]4` | `nginx:.master.[p]rocess` — 마스터 프로세스 하나만 본다 | `AGENT_APP_PATTERN` |
-| 포트 | 15034 | 80, HTTPS 면 443 도 | `AGENT_PORT`. 지금 코드는 포트 하나만 보므로 두 포트를 보려면 `:196` 을 `for` 반복으로 확장한다 |
-| 방화벽 | 20022, 15034 허용 | 15034 대신 80(·443) 허용 | `env/bootstrap.sh:47-48` 의 `ufw allow` |
+| 포트 | 15034 | 80, HTTPS 면 443 도 | `AGENT_PORT`. 지금 코드는 포트 하나만 보므로 두 포트를 보려면 `:200` 을 `for` 반복으로 확장한다 |
+| 방화벽 | 20022, 15034 허용 | 15034 대신 80(·443) 허용 | `env/bootstrap.sh:54-55` 의 `ufw allow` |
 | 관제 로그 | `monitor.log` (10MB × 10개) | 그대로 | `AGENT_LOG_DIR` |
 | 대상 서비스 로그 | 앱 로그 | `access.log`·`error.log` 는 요청마다 쌓여 빨리 커진다. 별도 logrotate 정책을 두고, 읽을 계정의 그룹·권한을 다시 정한다(Ubuntu 패키지는 보통 `adm` 그룹 소유 — 환경에 따라 확인) | `/etc/logrotate.d/nginx` |
 | 임계값 | CPU 20 / MEM 10 / DISK 80 | 트래픽에 따라 CPU 변동이 크다. 평상시 수치를 실측해 정한다 | `CPU_THRESHOLD` 등 환경 변수 |
@@ -767,7 +767,7 @@ agent-admin 이다. 관제 스크립트가 자기 로그를 스스로 관리하�
 ### 5-2. 프로세스는 살아 있는데 포트가 열리지 않을 때
 
 `monitor.sh` 에서는 프로세스 `[OK]`, 포트 `[FAIL]` 로 나타나고 `exit 1` 로 끝난다
-(`scripts/monitor.sh:196-201`).
+(`scripts/monitor.sh:200-205`).
 
 **가능한 원인**
 
@@ -831,7 +831,7 @@ rm 한 뒤           : 사용량 1218811M   ← 그대로, 이름만 사라짐
 이미 `rm` 했다면 `lsof +L1` 로 "지워졌지만 열려 있는 파일"을 찾아 위처럼 비우거나,
 프로세스가 로그 파일을 다시 열게 한다(Nginx 는 `nginx -s reopen`).
 
-이 과제에서 감지는 `DISK_USED` 임계값 경고가 맡는다(`scripts/monitor.sh:236-238`).
+이 과제에서 감지는 `DISK_USED` 임계값 경고가 맡는다(`scripts/monitor.sh:240-242`).
 임계값을 낮춰 경고 분기를 실증했다(`evidence/phase6-cron.txt:230-233`, `DISK_THRESHOLD=1`).
 `monitor.log` 자체는 10MB × 10개로 총량에 상한이 있지만, `cron.out` 은 회전하지 않는다(4-6절).
 
@@ -840,19 +840,41 @@ rm 한 뒤           : 사용량 1218811M   ← 그대로, 이름만 사라짐
 ## 6. 실행 방법
 
 ### 환경 기동
+Docker 엔진(Docker Desktop, OrbStack 등)이 떠 있어야 한다. 저장소 루트에서:
 ```bash
-cd answers/env
+cd env
 ./run.sh                                   # 이미지 빌드 + 컨테이너 기동 + 앱 반입
 docker cp ../scripts/monitor.sh       agent-lab:/tmp/
 docker exec -i agent-lab bash -s < bootstrap.sh    # 전체 셋업
 ```
 
+`run.sh` 와 `bootstrap.sh` 는 컨테이너 아키텍처(`uname -m`)를 보고 제공 바이너리를
+고르고, 관제 패턴(`AGENT_APP_PATTERN`)도 그에 맞춰 기록한다. 아래 명령은 x86_64
+호스트(Intel/AMD) 기준이다. arm64 호스트(Apple Silicon)에서는 바이너리명을
+`agent-app-linux-arm64`, 패턴을 `agent-app-linux-arm[6]4` 로 바꾼다
+(`bootstrap.sh` 마지막 줄이 그 환경의 실행 명령을 출력한다).
+
 ### 앱 실행
 ```bash
 docker exec -it agent-lab sudo -u agent-admin bash -c \
-  'set -a; . /etc/agent-app.env; set +a; cd $AGENT_HOME && ./agent-app-linux-arm64'
+  'set -a; . /etc/agent-app.env; set +a; cd $AGENT_HOME && ./agent-app-linux-x86'
 ```
-종료는 `Ctrl+C`. cron 검증 중에는 `nohup ... &` 로 상주시킨다.
+종료는 `Ctrl+C`. cron 검증 중에는 백그라운드로 상주시킨다:
+```bash
+docker exec agent-lab sudo -u agent-admin bash -c \
+  'set -a; . /etc/agent-app.env; set +a; cd "$AGENT_HOME" || exit 1; nohup ./agent-app-linux-x86 > "$AGENT_HOME/app-boot.log" 2>&1 < /dev/null &'
+
+docker exec agent-lab pkill -f 'agent-app-linux-x8[6]'    # 백그라운드 앱 정지
+```
+`nohup` 명령만 `&` 로 보낸다. `cd ... && nohup ... &` 처럼 목록 전체를 백그라운드로
+보내면 바이너리명이 명령줄에 남은 bash 서브셸이 앱의 부모로 살아 남고,
+`monitor.sh` 의 `pgrep -f ... | head -1` 이 앱 대신 그 셸의 PID 를 잡는다.
+
+### 관제 확인
+```bash
+docker exec agent-lab sudo -u agent-admin /home/agent-admin/agent-app/bin/monitor.sh
+docker exec agent-lab tail -5 /var/log/agent-app/monitor.log   # cron 이 매분 1줄씩 추가
+```
 
 ### 검증 / 기록 재생성
 ```bash
